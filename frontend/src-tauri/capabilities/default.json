@@ -1,0 +1,7 @@
+{
+  "identifier": "default",
+  "description": "Default capability set for AI CAD desktop.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}
+

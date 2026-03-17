@@ -1,0 +1,21 @@
+[package]
+name = "ai-cad-desktop"
+version = "0.1.0"
+description = "Windows-first desktop shell for AI CAD"
+authors = ["OpenAI"]
+edition = "2021"
+
+[lib]
+name = "ai_cad_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.5.6", features = [] }
+
+[dependencies]
+anyhow = "1.0.98"
+reqwest = { version = "0.12.24", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
+tauri = { version = "2.10.3", features = [] }
+zip = { version = "2.4.2", default-features = false, features = ["deflate"] }

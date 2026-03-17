@@ -1,0 +1,7 @@
+{
+  "runtimeVersion": "0.1.0-windows-x64",
+  "windows": {
+    "archive": "runtime/windows/python-cadquery-runtime-win64.zip",
+    "pythonPath": "python.exe"
+  }
+}

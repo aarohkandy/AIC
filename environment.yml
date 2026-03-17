@@ -1,0 +1,15 @@
+name: ai-cad
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - cadquery
+  - fastapi
+  - uvicorn
+  - httpx
+  - pydantic>=2
+  - pydantic-settings
+  - trimesh
+  - pytest
+  - pip
+
