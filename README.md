@@ -27,6 +27,14 @@ See [docs/setup.md](docs/setup.md) for the exact environment bootstrap steps.
 
 ## Quick Start
 
+Fastest terminal test:
+
+```bash
+./aic "a teapot which can hold 1 gallon"
+```
+
+That runs the planner directly in the terminal with no web app startup.
+
 1. Create the supported CAD environment from [environment.yml](environment.yml).
 2. Install frontend dependencies:
 
@@ -49,9 +57,22 @@ cd frontend
 npm run dev
 ```
 
-By default the backend runs in trusted local mode and uses a deterministic local
-planner. Hosted models remain blocked unless a healthy containerized executor is
-configured.
+By default the backend runs in trusted local mode and uses a local Ollama
+planner for every prompt, including simple shapes like mugs. The default model
+is `llama3.1:8b`, and the planner timeout is intentionally generous so the
+model has time to think through the steps.
+
+If Ollama is unavailable or the planner call fails, the backend falls back to
+the deterministic local planner. Hosted models remain blocked unless a healthy
+containerized executor is configured.
+
+To use the local AI planner, make sure Ollama is running locally and the model
+exists:
+
+```bash
+ollama list
+ollama serve
+```
 
 ## Desktop App Base
 

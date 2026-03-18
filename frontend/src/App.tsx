@@ -171,12 +171,12 @@ function App() {
     <div className="app-shell">
       <header className="masthead">
         <div>
-          <p className="eyebrow">AI CAD desktop base</p>
-          <h1>Package the local stack as one app.</h1>
+          <p className="eyebrow">Local AI CAD planner</p>
+          <h1>Ask for an object and get a build recipe with planes, locations, and sizes.</h1>
           <p className="subhead">
-            The React workspace stays, the FastAPI service stays, but the desktop shell now owns
-            runtime bootstrap, backend startup, health checks, and recovery instead of leaving
-            that burden on the user.
+            The planner now prefers a local Ollama model so the first thing you see is a
+            reproducible CAD plan, not a vague paragraph. For supported shapes the deterministic
+            compiler can still turn that plan into CadQuery.
           </p>
         </div>
         <div className="status-card">
@@ -232,7 +232,7 @@ function App() {
         <section className="panel panel-brief">
           <div className="panel-header">
             <h2>Brief + Revisions</h2>
-            <p>Keep the prompt natural, but the desktop shell now gates build actions until the local service is healthy.</p>
+            <p>Describe any object naturally. The local planner should break it into ordered CAD steps with workplanes, placement, and sizing details.</p>
           </div>
           <label className="field">
             <span>Prompt</span>
@@ -327,7 +327,7 @@ function App() {
         <section className="panel">
           <div className="panel-header">
             <h2>Build Plan</h2>
-            <p>The semantic step graph remains the main editing surface even after packaging as an app.</p>
+            <p>Each step should be human-checkable in CAD before we trust the automated build path.</p>
           </div>
           {plan ? (
             <div className="plan-content">
@@ -346,7 +346,48 @@ function App() {
                       <strong>{step.intent}</strong>
                       <code>{step.primitive_or_macro}</code>
                     </div>
+                    {step.workplane ? <p><strong>Workplane:</strong> {step.workplane}</p> : null}
                     <p>{step.postcondition}</p>
+                    {step.location_notes.length > 0 ? (
+                      <div className="notes compact-note">
+                        <h3>Location</h3>
+                        <ul>
+                          {step.location_notes.map((note) => (
+                            <li key={`${step.id}-location-${note}`}>{note}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+                    {step.size_notes.length > 0 ? (
+                      <div className="notes compact-note">
+                        <h3>Sizes</h3>
+                        <ul>
+                          {step.size_notes.map((note) => (
+                            <li key={`${step.id}-size-${note}`}>{note}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+                    {step.sketch_constraints.length > 0 ? (
+                      <div className="notes compact-note">
+                        <h3>Sketch constraints</h3>
+                        <ul>
+                          {step.sketch_constraints.map((note) => (
+                            <li key={`${step.id}-constraint-${note}`}>{note}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+                    {step.manual_instructions.length > 0 ? (
+                      <div className="notes compact-note">
+                        <h3>Manual recipe</h3>
+                        <ul>
+                          {step.manual_instructions.map((note) => (
+                            <li key={`${step.id}-manual-${note}`}>{note}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
                     <div className="param-list">
                       {Object.entries(step.parameters).map(([key, value]) => (
                         <span className="param-chip" key={`${step.id}-${key}`}>
@@ -389,6 +430,9 @@ function App() {
               <div>
                 <h3>Compiler checks</h3>
                 <ul>
+                  {compileResult.diagnostics.map((diagnostic, index) => (
+                    <li key={`${diagnostic.code}-${index}`}>{diagnostic.level}: {diagnostic.message}</li>
+                  ))}
                   {compileResult.whitelist_findings.map((finding, index) => (
                     <li key={`${finding.message}-${index}`}>{finding.severity}: {finding.message}</li>
                   ))}

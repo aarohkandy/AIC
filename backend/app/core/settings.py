@@ -16,9 +16,14 @@ class Settings(BaseSettings):
     runtime_root: Path = Path(__file__).resolve().parents[2] / "runtime"
     executor_mode: Literal["local", "containerized"] = "local"
     allow_hosted_models: bool = False
+    prefer_local_model_planner: bool = True
+    force_local_model_planner: bool = True
     gemini_api_key: str | None = None
     gemini_flash_model: str = "gemini-2.5-flash"
     gemini_pro_model: str = "gemini-2.5-pro"
+    ollama_base_url: str = "http://127.0.0.1:11434"
+    ollama_model: str = "llama3.1:8b"
+    ollama_timeout_seconds: int = 180
     default_flash_calls_per_day: int = 20
     default_pro_calls_per_day: int = 3
     max_hosted_calls_per_design: int = 3
@@ -58,4 +63,3 @@ def get_settings() -> Settings:
     settings.cache_root.mkdir(parents=True, exist_ok=True)
     settings.runtime_root.mkdir(parents=True, exist_ok=True)
     return settings
-

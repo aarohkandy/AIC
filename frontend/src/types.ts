@@ -21,6 +21,11 @@ export type SemanticStep = {
   id: string
   intent: string
   primitive_or_macro: string
+  workplane: string
+  location_notes: string[]
+  size_notes: string[]
+  sketch_constraints: string[]
+  manual_instructions: string[]
   parameters: Record<string, string | number | boolean>
   depends_on: string[]
   postcondition: string

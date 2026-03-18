@@ -39,5 +39,6 @@ def health() -> dict[str, object]:
         "python_version": sys.version,
         "runtime_root": str(settings.runtime_root),
         "executor_health": service.gateway.executor_health().model_dump(mode="json"),
+        "local_planner_health": service.gateway.local_planner_health(),
         "warning": settings.python_warning,
     }

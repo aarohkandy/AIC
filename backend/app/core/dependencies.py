@@ -7,6 +7,7 @@ from app.services.compilers.cadquery_compiler import CadQueryCompiler
 from app.services.design_service import DesignService
 from app.services.executors.cadquery_executor import CadQueryExecutor
 from app.services.gateway.model_gateway import ModelGateway
+from app.services.planners.ollama_planner import OllamaPlanner
 from app.services.planners.rule_based_planner import RuleBasedPlanner
 from app.services.revision.revision_engine import RevisionEngine
 from app.services.storage.file_store import FileStore
@@ -20,7 +21,7 @@ def get_design_service() -> DesignService:
     store = FileStore(settings)
     validator = DesignValidator()
     planner = RuleBasedPlanner()
-    gateway = ModelGateway(settings, planner, validator)
+    gateway = ModelGateway(settings, planner, validator, ollama_planner=OllamaPlanner(settings))
     compiler = CadQueryCompiler(SourceValidator())
     executor = CadQueryExecutor(settings)
     revision_engine = RevisionEngine()
@@ -33,4 +34,3 @@ def get_design_service() -> DesignService:
         validator=validator,
         revision_engine=revision_engine,
     )
-

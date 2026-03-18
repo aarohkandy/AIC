@@ -10,6 +10,7 @@ ALLOWED_NODES = {
     ast.Module,
     ast.Import,
     ast.ImportFrom,
+    ast.alias,
     ast.FunctionDef,
     ast.arguments,
     ast.arg,
@@ -57,6 +58,7 @@ class SourceValidator:
     def validate(self, source: str) -> list[WhitelistFinding]:
         findings: list[WhitelistFinding] = []
         try:
+            compile(source, "<generated>", "exec")
             tree = ast.parse(source)
         except SyntaxError as exc:
             return [

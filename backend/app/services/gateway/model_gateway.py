@@ -9,6 +9,7 @@ import httpx
 
 from app.core.settings import Settings
 from app.models.schemas import DesignBrief, ExecutorHealth, ModelCallRecord, SemanticBuildPlan
+from app.services.planners.ollama_planner import OllamaPlanner, OllamaPlannerError
 from app.services.planners.rule_based_planner import RuleBasedPlanner
 from app.services.validation.design_validator import DesignValidator
 
@@ -19,10 +20,12 @@ class ModelGateway:
         settings: Settings,
         planner: RuleBasedPlanner,
         validator: DesignValidator,
+        ollama_planner: OllamaPlanner | None = None,
     ) -> None:
         self.settings = settings
         self.planner = planner
         self.validator = validator
+        self.ollama_planner = ollama_planner
 
     def plan(
         self,
@@ -33,21 +36,51 @@ class ModelGateway:
     ) -> tuple[SemanticBuildPlan, float, ModelCallRecord, list[str]]:
         risk = self.validator.planning_risk_score(brief)
         warnings: list[str] = [self.settings.python_warning]
+        supported_shape = self._supports_rule_based_fallback(brief.prompt)
+        should_try_local_model = self.settings.prefer_local_model_planner and self.ollama_planner is not None
+        if should_try_local_model:
+            try:
+                local_plan, record, local_warnings = self.ollama_planner.plan(brief)
+                warnings.extend(local_warnings)
+                quality_warnings = self.validator.plan_quality_warnings(local_plan)
+                if quality_warnings:
+                    warnings.extend(quality_warnings)
+                    warnings.append("Returning the local AI plan with quality warnings because local planning is the default path.")
+                return local_plan, risk, record, warnings
+            except OllamaPlannerError as exc:
+                warnings.append(f"Local Ollama planner unavailable, falling back: {exc}")
         if self._can_use_hosted(risk, design_pro_call_count, prior_flash_failure):
             hosted_plan, record = self._plan_with_gemini(brief, risk)
             return hosted_plan, risk, record, warnings
         local_plan = self.planner.plan(brief)
+        if supported_shape:
+            warnings.append("Using deterministic local fallback because the local AI planner failed.")
+        else:
+            warnings.append("Using deterministic rule-based fallback because the local AI planner failed.")
         return (
             local_plan,
             risk,
             ModelCallRecord(
-                model="rule-based-local",
+                model="rule-based-local-fallback",
                 provider="local",
                 input_tokens=0,
                 output_tokens=0,
                 path="local",
             ),
             warnings,
+        )
+
+    def local_planner_health(self) -> dict[str, Any]:
+        if self.ollama_planner is None:
+            return {"available": False, "reason": "Ollama planner is not configured."}
+        return self.ollama_planner.health()
+
+    @staticmethod
+    def _supports_rule_based_fallback(prompt: str) -> bool:
+        text = prompt.lower()
+        return any(
+            keyword in text
+            for keyword in ("mug", "cup", "bracket", "box", "enclosure", "stand", "cap", "bottle")
         )
 
     def executor_health(self) -> ExecutorHealth:

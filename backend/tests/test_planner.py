@@ -15,4 +15,7 @@ def test_mug_prompt_generates_staged_plan() -> None:
     assert plan.steps[0].primitive_or_macro == "create_mug_body"
     assert plan.steps[1].depends_on == ["create_outer_body"]
     assert "mug" in plan.summary.lower()
-
+    assert plan.steps[0].workplane == "XY"
+    assert any("origin" in note.lower() for note in plan.steps[0].location_notes)
+    assert any("diameter" in note.lower() for note in plan.steps[0].size_notes)
+    assert plan.steps[2].sketch_constraints

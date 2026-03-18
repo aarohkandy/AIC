@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from textwrap import dedent
 from typing import Any
 
 
@@ -14,11 +13,11 @@ def _float(value: Any, fallback: float) -> float:
 def emit_step_source(step_id: str, macro: str, parameters: dict[str, Any]) -> str:
     params = {key: repr(value) for key, value in parameters.items()}
     body = MACRO_SOURCES[macro](params)
-    return dedent(
-        f"""
-        def {step_id}(state):
-        {indent(body, 4)}
-        """
+    return "\n".join(
+        [
+            f"def {step_id}(state):",
+            indent(body, 4),
+        ]
     ).strip()
 
 
@@ -132,12 +131,44 @@ def macro_parameters_for_prompt(kind: str, prompt_parameters: dict[str, Any]) ->
                 "id": "create_outer_body",
                 "intent": "Create the outer mug body as a cylinder.",
                 "primitive_or_macro": "create_mug_body",
+                "workplane": "XY",
+                "location_notes": [
+                    "Start a sketch on the Top or XY plane.",
+                    "Place the outer circle center at the global origin.",
+                ],
+                "size_notes": [
+                    f"Outer diameter = {outer_diameter} mm.",
+                    f"Extrude height = {height} mm.",
+                ],
+                "sketch_constraints": [
+                    "Constrain the circle center coincident with the origin.",
+                    f"Apply one diameter dimension of {outer_diameter} mm so the sketch is fully defined.",
+                ],
+                "manual_instructions": [
+                    "Sketch one centered circle for the mug exterior.",
+                    f"Extrude the profile upward by {height} mm as a new solid.",
+                ],
                 "parameters": {"outer_diameter": outer_diameter, "height": height},
             },
             {
                 "id": "hollow_body",
                 "intent": "Hollow the mug body while keeping a sturdy wall.",
                 "primitive_or_macro": "hollow_mug_body",
+                "workplane": "Top face",
+                "location_notes": [
+                    "Select the top opening face of the cylinder.",
+                    "Shell inward from that face so the bottom stays closed.",
+                ],
+                "size_notes": [
+                    f"Wall thickness = {wall} mm.",
+                ],
+                "sketch_constraints": [
+                    "No new sketch is required for this step.",
+                    "Preserve the body axis from the previous step so the hollow is concentric.",
+                ],
+                "manual_instructions": [
+                    f"Use a shell feature and remove the top face with {wall} mm thickness.",
+                ],
                 "depends_on": ["create_outer_body"],
                 "parameters": {"wall_thickness": wall},
             },
@@ -145,6 +176,29 @@ def macro_parameters_for_prompt(kind: str, prompt_parameters: dict[str, Any]) ->
                 "id": "add_handle",
                 "intent": "Add a blocky handle that can be refined later.",
                 "primitive_or_macro": "add_mug_handle",
+                "workplane": "YZ",
+                "location_notes": [
+                    "Start a sketch on the Right or YZ plane.",
+                    f"Center the handle sketch at X = {(outer_diameter / 2) + (24 / 2):.2f} mm from the mug axis and Z = {height * 0.52:.2f} mm from the base.",
+                    "Keep the handle centered vertically around that anchor point.",
+                ],
+                "size_notes": [
+                    "Handle width = 28 mm.",
+                    f"Handle span = {height * 0.48:.2f} mm.",
+                    "Handle thickness = 12 mm.",
+                    "Handle offset from body = 24 mm.",
+                ],
+                "sketch_constraints": [
+                    "Constrain the handle center point to the YZ reference plane.",
+                    "Dimension the outer rectangle width and height.",
+                    "Dimension the inner cutout relative to the outer rectangle so wall thickness stays consistent.",
+                    "Keep the outer and inner rectangles concentric so the handle sketch is fully defined.",
+                ],
+                "manual_instructions": [
+                    "Sketch an outer handle rectangle and a concentric inner cutout on the YZ plane.",
+                    "Extrude the ring profile symmetrically to create the handle thickness.",
+                    "Boolean-union the handle into the mug body.",
+                ],
                 "depends_on": ["hollow_body"],
                 "parameters": {
                     "outer_diameter": outer_diameter,
@@ -162,12 +216,27 @@ def macro_parameters_for_prompt(kind: str, prompt_parameters: dict[str, Any]) ->
                 "id": "create_bracket",
                 "intent": "Create the L bracket body from a 2D profile.",
                 "primitive_or_macro": "create_l_bracket",
+                "workplane": "XY",
+                "location_notes": ["Sketch the L profile on the XY plane with one corner at the origin."],
+                "size_notes": ["Arm width = 80 mm.", "Arm height = 80 mm.", "Thickness = 12 mm.", "Depth = 30 mm."],
+                "sketch_constraints": [
+                    "Lock one profile corner to the origin.",
+                    "Dimension every profile segment so the L shape is fully defined.",
+                ],
+                "manual_instructions": ["Sketch the L profile as a closed polyline and extrude it 30 mm."],
                 "parameters": {"arm_width": 80, "arm_height": 80, "thickness": 12, "depth": 30},
             },
             {
                 "id": "add_holes",
                 "intent": "Drill mounting holes into both arms.",
                 "primitive_or_macro": "drill_mount_holes",
+                "workplane": "Top faces",
+                "location_notes": ["Place hole centers on each arm using equal offsets from the inside corner."],
+                "size_notes": ["Hole margin = 25 mm.", "Hole diameter = 6 mm."],
+                "sketch_constraints": [
+                    "Dimension each hole center from two bracket edges so each point is fully defined.",
+                ],
+                "manual_instructions": ["Create one hole on each arm with mirrored placement from the inside corner."],
                 "depends_on": ["create_bracket"],
                 "parameters": {"thickness": 12, "hole_margin": 25, "hole_diameter": 6},
             },
@@ -178,12 +247,22 @@ def macro_parameters_for_prompt(kind: str, prompt_parameters: dict[str, Any]) ->
                 "id": "create_shell",
                 "intent": "Create a single-part enclosure shell.",
                 "primitive_or_macro": "create_project_box_shell",
+                "workplane": "XY",
+                "location_notes": ["Center the outer box at the origin on the XY plane."],
+                "size_notes": ["Width = 120 mm.", "Depth = 80 mm.", "Height = 48 mm.", "Wall thickness = 3 mm."],
+                "sketch_constraints": ["If modeled from sketches, center rectangles on the origin and dimension all sides."],
+                "manual_instructions": ["Create the outer box first, then subtract the inner cavity while preserving a bottom floor."],
                 "parameters": {"width": 120, "depth": 80, "height": 48, "wall_thickness": 3},
             },
             {
                 "id": "add_standoffs",
                 "intent": "Add internal standoffs for fasteners or a PCB.",
                 "primitive_or_macro": "add_standoffs",
+                "workplane": "XY",
+                "location_notes": ["Place four standoffs symmetrically near the internal corners."],
+                "size_notes": ["Standoff radius = 5 mm.", "Standoff height = 18 mm.", "Screw diameter = 3 mm."],
+                "sketch_constraints": ["Dimension each standoff center from the enclosure walls so the pattern is symmetric and fully defined."],
+                "manual_instructions": ["Create four circular bosses, then cut a centered pilot hole in each one."],
                 "depends_on": ["create_shell"],
                 "parameters": {
                     "width": 120,
@@ -201,6 +280,11 @@ def macro_parameters_for_prompt(kind: str, prompt_parameters: dict[str, Any]) ->
                 "id": "create_stand",
                 "intent": "Create the base and leaning backrest.",
                 "primitive_or_macro": "create_phone_stand",
+                "workplane": "XY",
+                "location_notes": ["Center the base on the origin and attach the backrest at the rear edge."],
+                "size_notes": ["Base width = 74 mm.", "Base depth = 92 mm.", "Back height = 110 mm.", "Back angle = 68 deg."],
+                "sketch_constraints": ["Dimension the base rectangle and the backrest hinge/tilt reference so the profile is fully defined."],
+                "manual_instructions": ["Create the base slab first, then add the tilted back support as a second solid."],
                 "parameters": {
                     "base_width": 74,
                     "base_depth": 92,
@@ -214,6 +298,11 @@ def macro_parameters_for_prompt(kind: str, prompt_parameters: dict[str, Any]) ->
                 "id": "add_lip",
                 "intent": "Add a small front retention lip.",
                 "primitive_or_macro": "add_retention_lip",
+                "workplane": "XY",
+                "location_notes": ["Place the lip centered on the front edge of the base."],
+                "size_notes": ["Lip depth = 10 mm.", "Lip height = 12 mm."],
+                "sketch_constraints": ["Center the lip profile on the stand midline and dimension its offset from the front edge."],
+                "manual_instructions": ["Add a centered lip feature at the front of the stand to stop the phone from sliding."],
                 "depends_on": ["create_stand"],
                 "parameters": {
                     "base_width": 74,
@@ -230,12 +319,22 @@ def macro_parameters_for_prompt(kind: str, prompt_parameters: dict[str, Any]) ->
             "id": "create_cap",
             "intent": "Create the cap body with a hollow interior.",
             "primitive_or_macro": "create_bottle_cap",
+            "workplane": "XY",
+            "location_notes": ["Sketch concentric circles on the XY plane centered at the origin."],
+            "size_notes": ["Outer diameter = 34 mm.", "Height = 20 mm.", "Wall thickness = 2.4 mm.", "Top thickness = 3 mm."],
+            "sketch_constraints": ["Make both circle centers coincident with the origin and dimension both diameters."],
+            "manual_instructions": ["Create the outer cylinder first, then remove the inner cylinder while leaving the top thickness intact."],
             "parameters": {"outer_diameter": 34, "height": 20, "wall_thickness": 2.4, "top_thickness": 3},
         },
         {
             "id": "add_grip",
             "intent": "Add grip cutouts around the perimeter.",
             "primitive_or_macro": "add_grip_cutouts",
+            "workplane": "XY",
+            "location_notes": ["Array the grip cutters around the cap center axis."],
+            "size_notes": ["Groove count = 18.", "Groove width = 2.4 mm.", "Groove depth = 1.2 mm."],
+            "sketch_constraints": ["Define one groove profile fully, then pattern it evenly around the center axis."],
+            "manual_instructions": ["Create one grip cutout and circular-pattern it around the cap."],
             "depends_on": ["create_cap"],
             "parameters": {
                 "outer_diameter": 34,
@@ -246,4 +345,3 @@ def macro_parameters_for_prompt(kind: str, prompt_parameters: dict[str, Any]) ->
             },
         },
     ]
-

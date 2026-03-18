@@ -22,6 +22,6 @@ def test_compiler_returns_step_functions_and_regions() -> None:
     result = compiler.compile(plan)
 
     assert "def create_outer_body" in result.source
+    compile(result.source, "<generated>", "exec")
     assert result.editable_regions[0].step_id == "create_outer_body"
     assert result.whitelist_findings
-

@@ -69,13 +69,16 @@ class DesignService:
         compile_result = self.compiler.compile(plan)
         artifacts_dir = self.store.artifacts_dir(design_id)
         self.store.write_text(self.store.compile_source_path(design_id), compile_result.source)
-        build_result = self._attempt_build(
-            design_id=design_id,
-            brief=request.brief,
-            plan=plan,
-            compile_result=compile_result,
-            artifacts_dir=artifacts_dir,
-        )
+        if self._compile_has_blockers(compile_result):
+            build_result = self._compile_failure_result(compile_result)
+        else:
+            build_result = self._attempt_build(
+                design_id=design_id,
+                brief=request.brief,
+                plan=plan,
+                compile_result=compile_result,
+                artifacts_dir=artifacts_dir,
+            )
         build_result.metrics.planning_risk_score = risk
         build_result.metrics.token_usage = {
             "input": model_call.input_tokens,
@@ -124,15 +127,18 @@ class DesignService:
 
         updated_plan = self.revision_engine.apply_patch(record.plan, patch)
         compile_result = self.compiler.compile(updated_plan)
-        dirty_from_step = self._earliest_dirty_step(updated_plan, patch)
-        build_result = self._attempt_build(
-            design_id=design_id,
-            brief=record.brief,
-            plan=updated_plan,
-            compile_result=compile_result,
-            artifacts_dir=self.store.artifacts_dir(design_id),
-            dirty_from_step=dirty_from_step,
-        )
+        if self._compile_has_blockers(compile_result):
+            build_result = self._compile_failure_result(compile_result)
+        else:
+            dirty_from_step = self._earliest_dirty_step(updated_plan, patch)
+            build_result = self._attempt_build(
+                design_id=design_id,
+                brief=record.brief,
+                plan=updated_plan,
+                compile_result=compile_result,
+                artifacts_dir=self.store.artifacts_dir(design_id),
+                dirty_from_step=dirty_from_step,
+            )
         record.plan = updated_plan
         record.compile = compile_result
         record.build = build_result
@@ -226,3 +232,39 @@ class DesignService:
             return plan.steps[0].id if plan.steps else None
         step_order = {step.id: index for index, step in enumerate(plan.steps)}
         return min(patch.target_step_ids, key=lambda step_id: step_order.get(step_id, 10**6))
+
+    @staticmethod
+    def _compile_has_blockers(compile_result: CompileResult) -> bool:
+        if any(diagnostic.level == "error" for diagnostic in compile_result.diagnostics):
+            return True
+        return any(finding.severity == "error" for finding in compile_result.whitelist_findings)
+
+    @staticmethod
+    def _compile_failure_result(compile_result: CompileResult) -> BuildResult:
+        messages = [
+            diagnostic.message
+            for diagnostic in compile_result.diagnostics
+            if diagnostic.level == "error"
+        ] + [
+            finding.message
+            for finding in compile_result.whitelist_findings
+            if finding.severity == "error"
+        ]
+        return BuildResult(
+            status="failed",
+            validation=DesignService._compile_failure_validation(),
+            failure=FailureReport(
+                failure_type="compile_failed",
+                message="; ".join(messages) if messages else "Compiler reported blocking errors.",
+                next_action="Use the planning output as a manual CAD recipe or revise the object toward supported macros.",
+                attribution_basis="setup_unavailable",
+            ),
+            attempts_used=1,
+        )
+
+    @staticmethod
+    def _compile_failure_validation():
+        return {
+            "status": "failed",
+            "checks": {"compile_blocked": True},
+        }

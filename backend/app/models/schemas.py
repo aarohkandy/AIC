@@ -30,6 +30,11 @@ class SemanticStep(StrictModel):
     id: str
     intent: str
     primitive_or_macro: str
+    workplane: str = ""
+    location_notes: list[str] = Field(default_factory=list)
+    size_notes: list[str] = Field(default_factory=list)
+    sketch_constraints: list[str] = Field(default_factory=list)
+    manual_instructions: list[str] = Field(default_factory=list)
     parameters: dict[str, float | int | str | bool] = Field(default_factory=dict)
     depends_on: list[str] = Field(default_factory=list)
     postcondition: str
