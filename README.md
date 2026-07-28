@@ -86,4 +86,4 @@ npm install
 npm run tauri:dev
 ```
 
-Packaged Windows notes live in [docs/windows-desktop.md](/Users/a_a_k/Downloads/AI_CAD/docs/windows-desktop.md).
+Packaged Windows notes live in [docs/windows-desktop.md](docs/windows-desktop.md).

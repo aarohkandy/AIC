@@ -10,7 +10,7 @@ That archive should contain a relocatable Python 3.11 environment with:
 - `fastapi`
 - `cadquery`
 - `trimesh`
-- backend dependencies from [environment.yml](/Users/a_a_k/Downloads/AI_CAD/environment.yml)
+- backend dependencies from [environment.yml](../../environment.yml)
 
 The Tauri shell unpacks the archive into:
 

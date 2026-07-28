@@ -15,7 +15,7 @@ keeps the current React frontend and FastAPI backend, but the shell owns:
 
 You should not need to uninstall and reinstall the app for normal development.
 
-From [frontend/package.json](/Users/a_a_k/Downloads/AI_CAD/frontend/package.json):
+From [frontend/package.json](../frontend/package.json):
 
 ```bash
 cd frontend
@@ -29,7 +29,7 @@ server, so normal UI edits should hot reload.
 ## Packaged Windows Flow
 
 1. Build the Windows runtime archive with
-   [packaging/scripts/build_windows_runtime.ps1](/Users/a_a_k/Downloads/AI_CAD/packaging/scripts/build_windows_runtime.ps1)
+   [packaging/scripts/build_windows_runtime.ps1](../packaging/scripts/build_windows_runtime.ps1)
 2. Confirm the archive exists at
    `packaging/runtime/windows/python-cadquery-runtime-win64.zip`
 3. Build the installer:
