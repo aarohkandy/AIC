@@ -217,7 +217,7 @@ class DesignService:
         for step in plan.steps:
             if step.id != failed_step_id:
                 continue
-            updates: dict[str, float] = {}
+            updates: dict[str, float | int | str | bool] = {}
             for key, value in step.parameters.items():
                 if isinstance(value, (int, float)) and any(
                     token in key for token in ("thickness", "radius", "depth", "width", "offset")
