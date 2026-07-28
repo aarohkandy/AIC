@@ -42,7 +42,20 @@ class CadQueryCompiler:
                 continue
 
             start_line = len(source_lines) + 1
-            step_source = emit_step_source(step.id, step.primitive_or_macro, step.parameters)
+            try:
+                step_source = emit_step_source(step.id, step.primitive_or_macro, step.parameters)
+            except KeyError as exc:
+                diagnostics.append(
+                    CompileDiagnostic(
+                        level="error",
+                        code="missing_parameter",
+                        message=(
+                            f"Macro {step.primitive_or_macro} is missing required "
+                            f"parameter {exc.args[0]!r}."
+                        ),
+                    )
+                )
+                continue
             step_lines = step_source.splitlines()
             source_lines.extend(step_lines)
             source_lines.append("")

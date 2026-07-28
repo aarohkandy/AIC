@@ -124,7 +124,7 @@ class DesignService:
                 plan=record.plan,
                 warnings=["Revision confidence below 0.60; clarification required."],
             )
-        if intent.confidence_score < 0.85 or patch is None or intent.operation == "topology_change":
+        if intent.confidence_score < 0.80 or patch is None or intent.operation == "topology_change":
             return ReviseResponse(
                 design_id=design_id,
                 revision=intent,
