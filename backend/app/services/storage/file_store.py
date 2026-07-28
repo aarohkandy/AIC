@@ -9,6 +9,8 @@ from app.models.schemas import DesignRecord
 
 
 class FileStore:
+    """Filesystem-backed persistence for design records and their artifacts."""
+
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self.settings.designs_root.mkdir(parents=True, exist_ok=True)

@@ -29,6 +29,12 @@ from app.services.validation.design_validator import DesignValidator
 
 
 class DesignService:
+    """Orchestrate the planner -> compiler -> executor pipeline for a design.
+
+    Coordinates planning, compilation, execution (with bounded repair
+    attempts), revision, and persistence for a single parametric part.
+    """
+
     def __init__(
         self,
         settings: Settings,

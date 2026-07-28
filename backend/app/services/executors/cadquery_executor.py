@@ -10,6 +10,13 @@ from app.models.schemas import BuildResult, CompileResult, DesignBrief, Semantic
 
 
 class CadQueryExecutor:
+    """Run compiled CadQuery source in an out-of-process runtime.
+
+    Writes the source and a JSON payload, invokes the runtime module as a
+    subprocess, and parses its BuildResult, degrading gracefully when the
+    runtime produces no result.
+    """
+
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
 

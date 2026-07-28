@@ -8,6 +8,13 @@ from app.services.cadquery_macros import default_postcondition, macro_parameters
 
 
 class RuleBasedPlanner:
+    """Deterministic fallback planner.
+
+    Infers an object category from the prompt and emits a staged build
+    plan from the known CadQuery macro library, extracting dimensions
+    from the brief where available.
+    """
+
     DIMENSION_PATTERN = re.compile(r"(?P<value>\d+(?:\.\d+)?)\s*(?P<unit>mm|cm|in|inch|inches)?")
 
     def plan(self, brief: DesignBrief) -> SemanticBuildPlan:

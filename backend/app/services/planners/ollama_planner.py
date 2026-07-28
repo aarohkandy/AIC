@@ -77,10 +77,17 @@ OLLAMA_PLAN_SCHEMA = {
 
 
 class OllamaPlannerError(RuntimeError):
-    pass
+    """Raised when the local Ollama planner is unavailable or returns unusable output."""
 
 
 class OllamaPlanner:
+    """Local LLM planner.
+
+    Requests a schema-constrained SemanticBuildPlan from an Ollama model
+    and normalizes it so every step has a workplane, notes, and
+    constraints suitable for manual CAD verification.
+    """
+
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
 

@@ -14,6 +14,13 @@ from app.services.validation.design_validator import DesignValidator
 
 
 class ModelGateway:
+    """Select and run a planner for a design brief.
+
+    Prefers the local Ollama planner, optionally falls back to a hosted
+    Gemini model, and finally to the deterministic rule-based planner.
+    Also tracks hosted-call quotas and reports executor health.
+    """
+
     def __init__(
         self,
         settings: Settings,

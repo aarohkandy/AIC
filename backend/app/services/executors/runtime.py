@@ -1,3 +1,12 @@
+"""Out-of-process executor entry point.
+
+Invoked as a subprocess by :class:`CadQueryExecutor` with a JSON payload
+path. Loads CadQuery, executes the compiled step functions with per-step
+artifact caching, exports STEP/STL/GLB artifacts, runs geometry
+acceptance checks, and writes a BuildResult-shaped JSON result. When
+CadQuery is unavailable it writes a graceful setup-unavailable failure.
+"""
+
 from __future__ import annotations
 
 import hashlib

@@ -17,6 +17,13 @@ PARAMETER_ALIASES = {
 
 
 class RevisionEngine:
+    """Interpret and apply natural-language plan revisions.
+
+    Maps an instruction to a RevisionIntent with a confidence score and,
+    when a parameter update is confidently identified, a PlanPatch that
+    can be applied to a plan.
+    """
+
     VALUE_PATTERN = re.compile(r"(?P<value>\d+(?:\.\d+)?)")
 
     def interpret(

@@ -6,6 +6,13 @@ from app.models.schemas import DesignBrief, SemanticBuildPlan, ValidationReport
 
 
 class DesignValidator:
+    """Heuristics for planning risk and plan quality.
+
+    Scores how risky a brief is to plan and reports warnings about a
+    produced plan (missing notes, placeholder values, or missing macro
+    parameters).
+    """
+
     def planning_risk_score(self, brief: DesignBrief) -> float:
         prompt = brief.prompt.lower()
         risk = 0.0

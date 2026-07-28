@@ -9,6 +9,8 @@ from app.models.schemas import CacheEntry
 
 
 class CacheStore:
+    """Content-addressed store for per-step build cache entries."""
+
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self.settings.cache_root.mkdir(parents=True, exist_ok=True)

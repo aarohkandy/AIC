@@ -54,6 +54,12 @@ ALLOWED_NODES = {
 
 
 class SourceValidator:
+    """Lint generated CadQuery source against an AST node/import allowlist.
+
+    This is a lint check that flags unexpected constructs, not a sandbox
+    boundary.
+    """
+
     def validate(self, source: str) -> list[WhitelistFinding]:
         findings: list[WhitelistFinding] = []
         try:

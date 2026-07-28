@@ -6,6 +6,12 @@ from app.services.validation.source_validator import SourceValidator
 
 
 class CadQueryCompiler:
+    """Compile a semantic build plan into deterministic CadQuery source.
+
+    Emits one function per step plus a ``build_model`` driver, records
+    per-step editable regions, and lints the output via SourceValidator.
+    """
+
     def __init__(self, validator: SourceValidator) -> None:
         self.validator = validator
 
