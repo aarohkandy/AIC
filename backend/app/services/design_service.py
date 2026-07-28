@@ -17,6 +17,8 @@ from app.models.schemas import (
     PlanPatch,
     PlanResponse,
     ReviseResponse,
+    SemanticBuildPlan,
+    ValidationReport,
 )
 from app.services.compilers.cadquery_compiler import CadQueryCompiler
 from app.services.executors.cadquery_executor import CadQueryExecutor
@@ -167,7 +169,7 @@ class DesignService:
         *,
         design_id: str,
         brief: DesignBrief,
-        plan,
+        plan: SemanticBuildPlan,
         compile_result: CompileResult,
         artifacts_dir: Path,
         dirty_from_step: str | None = None,
@@ -208,14 +210,14 @@ class DesignService:
         last_result.cache_hits = total_cache_hits
         return last_result
 
-    def _repair_patch(self, plan, failure: FailureReport) -> PlanPatch | None:
+    def _repair_patch(self, plan: SemanticBuildPlan, failure: FailureReport) -> PlanPatch | None:
         failed_step_id = failure.failed_step_id
         if failed_step_id is None:
             return None
         for step in plan.steps:
             if step.id != failed_step_id:
                 continue
-            updates = {}
+            updates: dict[str, float] = {}
             for key, value in step.parameters.items():
                 if isinstance(value, (int, float)) and any(
                     token in key for token in ("thickness", "radius", "depth", "width", "offset")
@@ -232,7 +234,7 @@ class DesignService:
         return None
 
     @staticmethod
-    def _earliest_dirty_step(plan, patch: PlanPatch) -> str | None:
+    def _earliest_dirty_step(plan: SemanticBuildPlan, patch: PlanPatch) -> str | None:
         if not patch.target_step_ids:
             return plan.steps[0].id if plan.steps else None
         step_order = {step.id: index for index, step in enumerate(plan.steps)}
@@ -268,8 +270,5 @@ class DesignService:
         )
 
     @staticmethod
-    def _compile_failure_validation():
-        return {
-            "status": "failed",
-            "checks": {"compile_blocked": True},
-        }
+    def _compile_failure_validation() -> ValidationReport:
+        return ValidationReport(status="failed", checks={"compile_blocked": True})

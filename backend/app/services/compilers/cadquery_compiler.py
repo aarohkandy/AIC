@@ -62,13 +62,12 @@ class CadQueryCompiler:
 
         source = "\n".join(source_lines).strip() + "\n"
         whitelist_findings = self.validator.validate(source)
-        diagnostics.extend(
+        diagnostics.append(
             CompileDiagnostic(
                 level="info",
                 code="step_count",
                 message=f"Compiled {len(plan.steps)} semantic steps.",
             )
-            for _ in [0]
         )
         return CompileResult(
             source=source,
