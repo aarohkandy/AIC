@@ -19,7 +19,12 @@ OLLAMA_PLAN_SCHEMA = {
         "parameters": {
             "type": "object",
             "additionalProperties": {
-                "anyOf": [{"type": "number"}, {"type": "integer"}, {"type": "string"}, {"type": "boolean"}]
+                "anyOf": [
+                    {"type": "number"},
+                    {"type": "integer"},
+                    {"type": "string"},
+                    {"type": "boolean"},
+                ]
             },
         },
         "steps": {
@@ -38,7 +43,12 @@ OLLAMA_PLAN_SCHEMA = {
                     "parameters": {
                         "type": "object",
                         "additionalProperties": {
-                            "anyOf": [{"type": "number"}, {"type": "integer"}, {"type": "string"}, {"type": "boolean"}]
+                            "anyOf": [
+                                {"type": "number"},
+                                {"type": "integer"},
+                                {"type": "string"},
+                                {"type": "boolean"},
+                            ]
                         },
                     },
                     "depends_on": {"type": "array", "items": {"type": "string"}},
@@ -152,7 +162,9 @@ class OllamaPlanner:
         if not step.size_notes and step.parameters:
             step.size_notes = [f"{key} = {value} {units}" for key, value in step.parameters.items()]
         if not step.sketch_constraints:
-            step.sketch_constraints = ["Anchor the sketch to the origin or a named reference so it is fully defined."]
+            step.sketch_constraints = [
+                "Anchor the sketch to the origin or a named reference so it is fully defined."
+            ]
         if not step.manual_instructions:
             step.manual_instructions = [step.intent, step.postcondition]
         return step

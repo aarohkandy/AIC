@@ -5,7 +5,6 @@ from copy import deepcopy
 
 from app.models.schemas import PlanPatch, RevisionIntent, SemanticBuildPlan
 
-
 PARAMETER_ALIASES = {
     "handle thickness": "handle_thickness",
     "handle width": "handle_width",
@@ -20,10 +19,16 @@ PARAMETER_ALIASES = {
 class RevisionEngine:
     VALUE_PATTERN = re.compile(r"(?P<value>\d+(?:\.\d+)?)")
 
-    def interpret(self, instruction: str, plan: SemanticBuildPlan) -> tuple[RevisionIntent, PlanPatch | None]:
+    def interpret(
+        self, instruction: str, plan: SemanticBuildPlan
+    ) -> tuple[RevisionIntent, PlanPatch | None]:
         lowered = instruction.lower().strip()
-        topology_change = any(word in lowered for word in ("add ", "remove ", "turn into", "convert"))
-        matched_parameter = next((value for alias, value in PARAMETER_ALIASES.items() if alias in lowered), None)
+        topology_change = any(
+            word in lowered for word in ("add ", "remove ", "turn into", "convert")
+        )
+        matched_parameter = next(
+            (value for alias, value in PARAMETER_ALIASES.items() if alias in lowered), None
+        )
         value_match = self.VALUE_PATTERN.search(lowered)
         evidence: list[str] = []
         score = 0.0
@@ -44,7 +49,11 @@ class RevisionEngine:
                     evidence.append(f"Matched revision text to step {step.id}.")
                     break
 
-        operation = "topology_change" if topology_change else "update_parameter" if matched_parameter else "unknown"
+        operation = (
+            "topology_change"
+            if topology_change
+            else "update_parameter" if matched_parameter else "unknown"
+        )
         targets = [matched_parameter] if matched_parameter else []
         intent = RevisionIntent(
             operation=operation,
@@ -56,11 +65,7 @@ class RevisionEngine:
         if operation != "update_parameter" or not value_match or matched_parameter is None:
             return intent, None
 
-        target_step_ids = [
-            step.id
-            for step in plan.steps
-            if matched_parameter in step.parameters
-        ]
+        target_step_ids = [step.id for step in plan.steps if matched_parameter in step.parameters]
         if not target_step_ids and matched_parameter in plan.parameters:
             target_step_ids = [plan.steps[0].id]
         patch = PlanPatch(

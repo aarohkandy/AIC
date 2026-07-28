@@ -4,7 +4,6 @@ import json
 
 from app.models.schemas import DesignBrief
 
-
 SUPPORTED_MACROS = [
     "create_mug_body",
     "hollow_mug_body",

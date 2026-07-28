@@ -107,9 +107,7 @@ class BuildResult(StrictModel):
     status: Literal["succeeded", "failed", "needs_confirmation"]
     artifacts: ArtifactPaths = Field(default_factory=ArtifactPaths)
     metrics: BuildMetrics = Field(default_factory=BuildMetrics)
-    validation: ValidationReport = Field(
-        default_factory=lambda: ValidationReport(status="skipped")
-    )
+    validation: ValidationReport = Field(default_factory=lambda: ValidationReport(status="skipped"))
     attempts_used: int = 0
     cache_hits: int = 0
     failure: FailureReport | None = None

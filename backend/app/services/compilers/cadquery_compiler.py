@@ -15,8 +15,8 @@ class CadQueryCompiler:
             "import cadquery as cq",
             "",
             "def export_artifacts(result, step_path, stl_path, glb_path):",
-            '    result.export(step_path)',
-            '    result.export(stl_path, tolerance=0.05, angularTolerance=0.1)',
+            "    result.export(step_path)",
+            "    result.export(stl_path, tolerance=0.05, angularTolerance=0.1)",
             "    assembly = cq.Assembly()",
             '    assembly.add(result, name="part", color=cq.Color(0.8, 0.8, 0.82))',
             "    assembly.export(glb_path)",
@@ -63,7 +63,11 @@ class CadQueryCompiler:
         source = "\n".join(source_lines).strip() + "\n"
         whitelist_findings = self.validator.validate(source)
         diagnostics.extend(
-            CompileDiagnostic(level="info", code="step_count", message=f"Compiled {len(plan.steps)} semantic steps.")
+            CompileDiagnostic(
+                level="info",
+                code="step_count",
+                message=f"Compiled {len(plan.steps)} semantic steps.",
+            )
             for _ in [0]
         )
         return CompileResult(

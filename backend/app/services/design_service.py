@@ -190,7 +190,10 @@ class DesignService:
             if last_result.status == "succeeded":
                 last_result.cache_hits = total_cache_hits
                 return last_result
-            if not last_result.failure or last_result.failure.attribution_basis == "setup_unavailable":
+            if (
+                not last_result.failure
+                or last_result.failure.attribution_basis == "setup_unavailable"
+            ):
                 last_result.cache_hits = total_cache_hits
                 return last_result
             patch = self._repair_patch(current_plan, last_result.failure)
@@ -214,7 +217,9 @@ class DesignService:
                 continue
             updates = {}
             for key, value in step.parameters.items():
-                if isinstance(value, (int, float)) and any(token in key for token in ("thickness", "radius", "depth", "width", "offset")):
+                if isinstance(value, (int, float)) and any(
+                    token in key for token in ("thickness", "radius", "depth", "width", "offset")
+                ):
                     updates[key] = round(float(value) * 0.9, 2)
             if not updates:
                 return None

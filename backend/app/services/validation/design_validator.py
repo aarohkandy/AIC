@@ -15,7 +15,9 @@ class DesignValidator:
             risk += 0.3
         if any(word in prompt for word in ("maybe", "roughly", "something like")):
             risk += 0.15
-        if "and" in prompt and any(word in prompt for word in ("mug", "bracket", "box", "cap", "stand")):
+        if "and" in prompt and any(
+            word in prompt for word in ("mug", "bracket", "box", "cap", "stand")
+        ):
             risk += 0.1
         return round(min(risk, 1.0), 2)
 
@@ -34,7 +36,9 @@ class DesignValidator:
                 for feature in brief.required_features
                 if feature.lower() not in plan.summary.lower()
             ]
-            checks["required_features_status"] = "passed" if not missing else f"missing:{','.join(missing)}"
+            checks["required_features_status"] = (
+                "passed" if not missing else f"missing:{','.join(missing)}"
+            )
             if missing:
                 status = "failed"
         return ValidationReport(status=status, checks=checks)
@@ -52,23 +56,38 @@ class DesignValidator:
                 warnings.append(f"Step {step.id} is missing sketch constraints.")
 
             if self._contains_placeholder(step.parameters) or self._contains_placeholder(
-                step.location_notes + step.size_notes + step.sketch_constraints + step.manual_instructions
+                step.location_notes
+                + step.size_notes
+                + step.sketch_constraints
+                + step.manual_instructions
             ):
                 warnings.append(f"Step {step.id} contains placeholders instead of concrete values.")
 
             if step.primitive_or_macro == "create_mug_body":
                 required = ("outer_diameter", "height")
-                missing = [key for key in required if not isinstance(step.parameters.get(key), (int, float))]
+                missing = [
+                    key
+                    for key in required
+                    if not isinstance(step.parameters.get(key), (int, float))
+                ]
                 if missing:
-                    warnings.append(f"Step {step.id} is missing numeric mug body parameters: {', '.join(missing)}.")
+                    warnings.append(
+                        f"Step {step.id} is missing numeric mug body parameters: {', '.join(missing)}."
+                    )
             if step.primitive_or_macro == "hollow_mug_body":
                 if not isinstance(step.parameters.get("wall_thickness"), (int, float)):
                     warnings.append(f"Step {step.id} is missing numeric wall_thickness.")
             if step.primitive_or_macro == "add_mug_handle":
                 required = ("handle_width", "handle_span", "handle_thickness", "offset", "z_center")
-                missing = [key for key in required if not isinstance(step.parameters.get(key), (int, float))]
+                missing = [
+                    key
+                    for key in required
+                    if not isinstance(step.parameters.get(key), (int, float))
+                ]
                 if missing:
-                    warnings.append(f"Step {step.id} is missing numeric handle parameters: {', '.join(missing)}.")
+                    warnings.append(
+                        f"Step {step.id} is missing numeric handle parameters: {', '.join(missing)}."
+                    )
         return warnings
 
     @staticmethod

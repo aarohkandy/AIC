@@ -94,9 +94,13 @@ class RuleBasedPlanner:
         if not extracted:
             assumptions.append("Prompt omitted some dimensions, so category defaults were applied.")
         if kind == "project_box":
-            assumptions.append("Single-part enclosure body only; separate lids remain out of scope for v1.")
+            assumptions.append(
+                "Single-part enclosure body only; separate lids remain out of scope for v1."
+            )
         if kind == "mug":
-            assumptions.append("Handle is blocky and revision-friendly rather than ergonomic in v1.")
+            assumptions.append(
+                "Handle is blocky and revision-friendly rather than ergonomic in v1."
+            )
         return assumptions
 
     def _combine_parameters(self, steps: list[SemanticStep]) -> dict[str, Any]:

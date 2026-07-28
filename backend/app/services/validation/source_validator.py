@@ -4,7 +4,6 @@ import ast
 
 from app.models.schemas import WhitelistFinding
 
-
 ALLOWED_IMPORTS = {"cadquery"}
 ALLOWED_NODES = {
     ast.Module,

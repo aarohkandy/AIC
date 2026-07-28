@@ -105,7 +105,12 @@ def main() -> None:
             cached_artifact = cache_dir / f"{step['id']}.step"
             cached_metrics = cache_dir / f"{step['id']}-metrics.json"
 
-            if not encountered_dirty and entry_path.exists() and cached_artifact.exists() and cached_metrics.exists():
+            if (
+                not encountered_dirty
+                and entry_path.exists()
+                and cached_artifact.exists()
+                and cached_metrics.exists()
+            ):
                 state = cq.importers.importStep(str(cached_artifact))
                 step_metrics[step["id"]] = json.loads(cached_metrics.read_text(encoding="utf-8"))
                 parent_hash = cache_key
@@ -177,7 +182,11 @@ def main() -> None:
             },
             "metrics": {
                 "volume": float(final_solid.Volume()),
-                "bounding_box": {"x": float(final_box.xlen), "y": float(final_box.ylen), "z": float(final_box.zlen)},
+                "bounding_box": {
+                    "x": float(final_box.xlen),
+                    "y": float(final_box.ylen),
+                    "z": float(final_box.zlen),
+                },
                 "attempt_latency_ms": int((time.perf_counter() - started) * 1000),
                 "planning_risk_score": 0.0,
                 "token_usage": {},
@@ -198,11 +207,7 @@ def main() -> None:
         _write_json(result_path, result)
     except Exception as exc:
         failed_step_id = failed_step_id or next(
-            (
-                step["id"]
-                for step in plan["steps"]
-                if step["id"] not in step_metrics
-            ),
+            (step["id"] for step in plan["steps"] if step["id"] not in step_metrics),
             None,
         )
         _write_json(

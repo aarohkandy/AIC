@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from datetime import date
-from pathlib import Path
 from typing import Any
 
 import httpx
@@ -37,7 +36,9 @@ class ModelGateway:
         risk = self.validator.planning_risk_score(brief)
         warnings: list[str] = [self.settings.python_warning]
         supported_shape = self._supports_rule_based_fallback(brief.prompt)
-        should_try_local_model = self.settings.prefer_local_model_planner and self.ollama_planner is not None
+        should_try_local_model = (
+            self.settings.prefer_local_model_planner and self.ollama_planner is not None
+        )
         if should_try_local_model:
             try:
                 local_plan, record, local_warnings = self.ollama_planner.plan(brief)
@@ -45,7 +46,9 @@ class ModelGateway:
                 quality_warnings = self.validator.plan_quality_warnings(local_plan)
                 if quality_warnings:
                     warnings.extend(quality_warnings)
-                    warnings.append("Returning the local AI plan with quality warnings because local planning is the default path.")
+                    warnings.append(
+                        "Returning the local AI plan with quality warnings because local planning is the default path."
+                    )
                 return local_plan, risk, record, warnings
             except OllamaPlannerError as exc:
                 warnings.append(f"Local Ollama planner unavailable, falling back: {exc}")
@@ -54,9 +57,13 @@ class ModelGateway:
             return hosted_plan, risk, record, warnings
         local_plan = self.planner.plan(brief)
         if supported_shape:
-            warnings.append("Using deterministic local fallback because the local AI planner failed.")
+            warnings.append(
+                "Using deterministic local fallback because the local AI planner failed."
+            )
         else:
-            warnings.append("Using deterministic rule-based fallback because the local AI planner failed.")
+            warnings.append(
+                "Using deterministic rule-based fallback because the local AI planner failed."
+            )
         return (
             local_plan,
             risk,

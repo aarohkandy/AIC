@@ -74,4 +74,3 @@ class CacheStore:
             encoding="utf-8",
         )
         return entry
-

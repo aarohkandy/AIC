@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from app.core.settings import Settings
@@ -41,7 +41,7 @@ class FileStore:
         return json.loads(path.read_text(encoding="utf-8"))
 
     def save_record(self, record: DesignRecord) -> None:
-        record.updated_at = datetime.now(timezone.utc)
+        record.updated_at = datetime.now(UTC)
         self.write_json(self.design_record_path(record.design_id), record.model_dump(mode="json"))
 
     def load_record(self, design_id: str) -> DesignRecord | None:
@@ -55,4 +55,3 @@ class FileStore:
         if isinstance(value, datetime):
             return value.isoformat()
         raise TypeError(f"Unsupported JSON value: {type(value)!r}")
-

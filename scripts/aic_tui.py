@@ -118,7 +118,9 @@ def interactive_loop(as_json: bool) -> int:
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the AI CAD planner in the terminal.")
     parser.add_argument("prompt", nargs="*", help="Object description to plan.")
-    parser.add_argument("--json", action="store_true", help="Print the raw planning payload as JSON.")
+    parser.add_argument(
+        "--json", action="store_true", help="Print the raw planning payload as JSON."
+    )
     return parser.parse_args(argv)
 
 

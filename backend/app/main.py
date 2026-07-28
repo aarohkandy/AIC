@@ -9,7 +9,6 @@ from app.api.routes_designs import router as design_router
 from app.core.dependencies import get_design_service
 from app.core.settings import get_settings
 
-
 settings = get_settings()
 allowed_origins = {
     settings.frontend_origin,
