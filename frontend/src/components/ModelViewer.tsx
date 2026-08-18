@@ -1,6 +1,6 @@
 import { Suspense, useEffect } from 'react'
 import { Canvas, useLoader, useThree } from '@react-three/fiber'
-import { Environment, OrbitControls } from '@react-three/drei'
+import { OrbitControls } from '@react-three/drei'
 import { Box3, Vector3 } from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 
@@ -28,9 +28,13 @@ export function ModelViewer({ url }: { url: string }) {
       <directionalLight position={[6, 12, 8]} intensity={1.4} color="#fff1dc" />
       <directionalLight position={[-8, 4, -6]} intensity={0.55} color="#b7d3dd" />
       <gridHelper args={[220, 22, '#b1a58f', '#e2d7c0']} position={[0, -40, 0]} />
+      {/* No <Environment> here on purpose: drei's presets fetch an HDR from
+          raw.githack.com, and the rejected request escapes the Canvas and puts
+          "Preview failed to load." over a model that parsed perfectly well. A
+          tool that runs entirely on your own machine should not need the
+          network to show you a mug. The lights above stand in for it. */}
       <Suspense fallback={null}>
         <FitCamera url={url} />
-        <Environment preset="studio" />
       </Suspense>
       <OrbitControls enableDamping makeDefault />
     </Canvas>
