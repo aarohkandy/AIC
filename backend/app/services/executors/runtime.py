@@ -119,9 +119,10 @@ def main() -> None:
     parent_hash = "root"
     encountered_dirty = dirty_from is None
     module_loaded = False
-    # Whatever is running right now, so a raised exception can name it. Inferring
-    # it afterwards from which steps recorded metrics blames the wrong step when
-    # the failure is in the cache export, which happens after metrics are taken.
+    # Whatever is running right now, so a raised exception can name it. The
+    # cache export happens inside the step loop but is not the step function's
+    # doing, and inferring the culprit afterwards from how far the loop got
+    # would blame the step for a failure in the export.
     running_step: str | None = None
 
     try:
@@ -154,31 +155,18 @@ def main() -> None:
             state = step_fn(state)
             if state is None:
                 # A manual_feature step compiles to a pass-through, so a plan that
-                # opens with one has no solid yet. Nothing to measure or cache, and
-                # blaming this step for the missing geometry would be wrong.
+                # opens with one has no solid yet. Nothing to cache, and blaming
+                # this step for the missing geometry would be wrong.
                 continue
-            solid = state.val()
-            box = solid.BoundingBox()
-            metrics = {
-                "volume": float(solid.Volume()),
-                "bounding_box": {
-                    "x": float(box.xlen),
-                    "y": float(box.ylen),
-                    "z": float(box.zlen),
-                },
-            }
             cached_artifact = cache.artifact_path(cache_key, step["id"])
-            cached_metrics = cache.metrics_path(cache_key, step["id"])
             cache.entry_dir(cache_key).mkdir(parents=True, exist_ok=True)
             state.export(str(cached_artifact))
-            cached_metrics.write_text(json.dumps(metrics, indent=2), encoding="utf-8")
             cache.save(
                 payload["design_id"],
                 step["id"],
                 parameter_hash,
                 parent_hash,
                 cached_artifact,
-                cached_metrics,
             )
             parent_hash = cache_key
 

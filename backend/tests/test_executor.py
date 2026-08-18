@@ -481,9 +481,10 @@ def test_a_failed_cache_export_blames_the_step_it_belonged_to(tmp_path, monkeypa
     )
 
     assert result["failure"]["failure_type"] == "cadquery_execution_failed"
-    # The cache export runs after the step's metrics are taken, so working the
-    # blame out from "first step with no metrics" named `rim`, which never ran,
-    # and sent the repair loop off to shrink its parameters.
+    # The cache export happens inside the loop but is not the step function's
+    # doing. Working the blame out afterwards from how far the loop got names
+    # `rim`, which never ran, and sends the repair loop off to shrink its
+    # parameters; the runtime records the step it is on instead.
     assert result["failure"]["failed_step_id"] == "body"
 
 

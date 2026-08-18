@@ -196,7 +196,6 @@ class CacheEntry(StrictModel):
     parameter_hash: str
     compiler_version: str
     artifact_path: str
-    metrics_path: str
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
