@@ -14,8 +14,11 @@ use serde::{Deserialize, Serialize};
 use tauri::{path::BaseDirectory, AppHandle, Manager, State};
 use zip::ZipArchive;
 
+/// Serialized verbatim: `types.ts` compares against `'NotInstalled' | 'Installing' |
+/// 'Ready' | 'Broken'`, so this enum must not carry a `rename_all`. On an enum the
+/// attribute renames the variants rather than the fields, which would send the frontend
+/// `"ready"` and leave every action button disabled behind a bootstrap that has finished.
 #[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub enum BootstrapState {
     NotInstalled,
     Installing,
@@ -597,4 +600,30 @@ fn append_log(path: &Path, message: &str) -> anyhow::Result<()> {
     file.write_all(message.as_bytes())
         .with_context(|| format!("could not write log file {}", path.display()))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bootstrap_state_keeps_the_variant_names_the_frontend_compares_against() {
+        assert_eq!(
+            serde_json::to_string(&BootstrapState::Ready).unwrap(),
+            "\"Ready\""
+        );
+        assert_eq!(
+            serde_json::to_string(&BootstrapState::NotInstalled).unwrap(),
+            "\"NotInstalled\""
+        );
+    }
+
+    #[test]
+    fn desktop_status_fields_stay_camel_case() {
+        let status = serde_json::to_value(DesktopManager::default().snapshot()).unwrap();
+        assert_eq!(status["bootstrapState"], "NotInstalled");
+        assert_eq!(status["isDesktopShell"], true);
+        assert!(status["backendHealth"]["healthy"].is_boolean());
+        assert!(status.get("bootstrap_state").is_none());
+    }
 }
