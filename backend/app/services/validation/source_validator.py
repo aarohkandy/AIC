@@ -63,13 +63,16 @@ class SourceValidator:
     def validate(self, source: str) -> list[WhitelistFinding]:
         findings: list[WhitelistFinding] = []
         try:
+            # compile() rejects things ast.parse() accepts, a return outside a
+            # function among them, so both run before the walk below.
             compile(source, "<generated>", "exec")
             tree = ast.parse(source)
         except SyntaxError as exc:
+            location = f" at line {exc.lineno}" if exc.lineno else ""
             return [
                 WhitelistFinding(
                     severity="error",
-                    message=f"Generated source did not parse: {exc.msg}",
+                    message=f"Generated source did not parse{location}: {exc.msg}",
                 )
             ]
 
