@@ -6,12 +6,55 @@ import json
 import sys
 from textwrap import fill
 
-from app.core.settings import Settings
-from app.models.schemas import DesignBrief
-from app.services.gateway.model_gateway import ModelGateway
-from app.services.planners.ollama_planner import OllamaPlanner
-from app.services.planners.rule_based_planner import RuleBasedPlanner
-from app.services.validation.design_validator import DesignValidator
+SUPPORTED_PYTHON = (3, 11)
+
+try:
+    from app.core.settings import Settings
+    from app.models.schemas import DesignBrief
+    from app.services.gateway.model_gateway import ModelGateway
+    from app.services.planners.ollama_planner import OllamaPlanner
+    from app.services.planners.rule_based_planner import RuleBasedPlanner
+    from app.services.validation.design_validator import DesignValidator
+except ImportError as exc:
+    # Usually the stock system python: 3.9 cannot import the backend package at
+    # all, and a bare interpreter is missing pydantic. Either way a traceback
+    # tells the user nothing useful.
+    running = sys.version_info[:2]
+    if running < SUPPORTED_PYTHON:
+        reason = (
+            f"{sys.executable} is Python {running[0]}.{running[1]}, and this needs "
+            f"{SUPPORTED_PYTHON[0]}.{SUPPORTED_PYTHON[1]}"
+        )
+    else:
+        reason = f"the backend dependencies are missing ({exc})"
+    raise SystemExit(
+        f"aic: {reason}.\n"
+        "The supported environment is Python 3.11 from conda/mamba:\n"
+        "\n"
+        "    mamba env create -f environment.yml\n"
+        "    conda activate ai-cad\n"
+        "\n"
+        "Full steps are in docs/setup.md."
+    ) from exc
+
+
+def bullet(text: str, indent: str = "") -> str:
+    """Wrap one list item to the same 80 columns as the rules and the summary.
+
+    Assumptions and warnings are full sentences and routinely run past 80
+    characters, which broke the frame every time the planner had something
+    honest to say.
+    """
+    return fill(
+        str(text),
+        width=80,
+        initial_indent=f"{indent}- ",
+        subsequent_indent=f"{indent}  ",
+        # Warnings quote URLs and hyphenated words. Splitting either one to make
+        # the column costs more than the overflow does.
+        break_long_words=False,
+        break_on_hyphens=False,
+    )
 
 
 def build_gateway() -> ModelGateway:
@@ -52,7 +95,7 @@ def render_plan(prompt: str, *, as_json: bool = False) -> int:
         print("Warnings")
         print("-" * 80)
         for warning in warnings:
-            print(f"- {warning}")
+            print(bullet(warning))
     print()
     print("Summary")
     print("-" * 80)
@@ -62,7 +105,7 @@ def render_plan(prompt: str, *, as_json: bool = False) -> int:
         print("Assumptions")
         print("-" * 80)
         for assumption in plan.assumptions:
-            print(f"- {assumption}")
+            print(bullet(assumption))
     print()
     print("Steps")
     print("-" * 80)
@@ -77,23 +120,23 @@ def render_plan(prompt: str, *, as_json: bool = False) -> int:
         if step.location_notes:
             print("   location:")
             for note in step.location_notes:
-                print(f"   - {note}")
+                print(bullet(note, indent="   "))
         if step.size_notes:
             print("   sizes:")
             for note in step.size_notes:
-                print(f"   - {note}")
+                print(bullet(note, indent="   "))
         if step.sketch_constraints:
             print("   sketch_constraints:")
             for note in step.sketch_constraints:
-                print(f"   - {note}")
+                print(bullet(note, indent="   "))
         if step.manual_instructions:
             print("   manual_recipe:")
             for note in step.manual_instructions:
-                print(f"   - {note}")
+                print(bullet(note, indent="   "))
         if step.parameters:
             print("   parameters:")
             for key, value in step.parameters.items():
-                print(f"   - {key}: {value}")
+                print(bullet(f"{key}: {value}", indent="   "))
         print(f"   postcondition: {step.postcondition}")
         print()
     return 0

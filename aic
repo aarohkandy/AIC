@@ -9,4 +9,38 @@ if [[ -x "${ROOT_DIR}/.venv-test/bin/python" ]]; then
   PYTHON_BIN="${ROOT_DIR}/.venv-test/bin/python"
 fi
 
+setup_hint() {
+  cat >&2 <<'HINT'
+The supported environment is Python 3.11 from conda/mamba:
+
+    mamba env create -f environment.yml
+    conda activate ai-cad
+
+Full steps are in docs/setup.md.
+HINT
+}
+
+if ! command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
+  echo "aic: no '${PYTHON_BIN}' on PATH." >&2
+  setup_hint
+  exit 1
+fi
+
+# The stock macOS python3 is 3.9, which cannot even import the backend package.
+# Say so here instead of letting the user read an ImportError traceback.
+PRINT_VERSION='import sys; print(*sys.version_info[:2])'
+read -r MAJOR MINOR <<<"$("${PYTHON_BIN}" -c "${PRINT_VERSION}" 2>/dev/null)" || true
+
+if [[ ! ${MAJOR:-} =~ ^[0-9]+$ || ! ${MINOR:-} =~ ^[0-9]+$ ]]; then
+  echo "aic: '${PYTHON_BIN}' is on PATH but did not report a Python version." >&2
+  setup_hint
+  exit 1
+fi
+
+if (( MAJOR < 3 || (MAJOR == 3 && MINOR < 11) )); then
+  echo "aic: needs Python 3.11 or newer, but ${PYTHON_BIN} is ${MAJOR}.${MINOR}." >&2
+  setup_hint
+  exit 1
+fi
+
 exec "${PYTHON_BIN}" "${ROOT_DIR}/scripts/aic_tui.py" "$@"
