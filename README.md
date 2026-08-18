@@ -27,13 +27,16 @@ See [docs/setup.md](docs/setup.md) for the exact environment bootstrap steps.
 
 ## Quick Start
 
-Fastest terminal test:
+Fastest terminal test, once the environment from
+[environment.yml](environment.yml) is created and activated:
 
 ```bash
 ./aic "a teapot which can hold 1 gallon"
 ```
 
-That runs the planner directly in the terminal with no web app startup.
+That runs the planner directly in the terminal with no web app startup. Run
+outside that environment it prints the bootstrap commands and exits 1 rather
+than a traceback.
 
 1. Create the supported CAD environment from [environment.yml](environment.yml).
 2. Install frontend dependencies:
@@ -73,6 +76,40 @@ exists:
 ollama list
 ollama serve
 ```
+
+## What the Macro Library Covers
+
+Geometry comes from a fixed macro library, so the compiler can only *build* the
+shapes it has recipes for. Five families are modelled end to end:
+
+- mug (`mug`, `cup`): outer body, shell, blocky handle
+- L bracket (`bracket`): L profile plus two mounting holes
+- project box (`box`, `enclosure`): shelled enclosure plus four standoffs
+- phone stand (`stand`): base slab, tilted backrest, front lip
+- bottle cap (`bottle`, `cap`): hollow cap body plus perimeter grip cutouts
+
+Prompts are scanned for diameter, height, width, depth and wall thickness. A
+recipe uses the ones it has parameters for, and the plan's assumptions say what
+became of the rest: which dimensions this recipe has no parameter for, which
+ones fell back to a category default, and any value that had to be clamped to
+keep the solid buildable. Ask for a 20 mm box with 15 mm walls and you get
+8 mm walls and a line saying so, because 15 mm walls cut a negative cavity.
+
+Every plan is in millimetres. A prompt or form figure given in cm or inches is
+converted on the way in and the assumptions name the original unit. A zero or
+negative dimension cannot be extruded, so it falls back to the category default
+and the plan says which one it used.
+
+Anything outside those five families is not recognized. The plan summary and
+the assumptions both say so, and the planner still hands back the closest
+recipe as a stand-in, so the workplanes, locations, sizes and sketch
+constraints remain a usable manual CAD recipe. It will not quietly call a
+bottle cap a teapot.
+
+When the local AI planner writes a step no macro fits, it marks it
+`manual_feature`. Those compile to a pass-through so the rest of the plan still
+builds, and the compile diagnostics name the step and point at its manual
+instructions.
 
 ## Desktop App Base
 
