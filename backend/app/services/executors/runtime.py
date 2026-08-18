@@ -1,10 +1,10 @@
 """Out-of-process executor entry point.
 
 Invoked as a subprocess by :class:`CadQueryExecutor` with a JSON payload
-path. Loads CadQuery, executes the compiled step functions with per-step
-artifact caching, exports STEP/STL/GLB artifacts, runs geometry
-acceptance checks, and writes a BuildResult-shaped JSON result. When
-CadQuery is unavailable it writes a graceful setup-unavailable failure.
+path. Loads CadQuery, executes the compiled step functions in dependency
+order with per-step artifact caching, exports STEP/STL/GLB artifacts, runs
+geometry acceptance checks, and writes a BuildResult-shaped JSON result.
+When CadQuery is unavailable it writes a graceful setup-unavailable failure.
 
 Anything that goes wrong from loading the compiled module onward is
 written into the result file; the traceback also goes to stderr, which
@@ -17,9 +17,11 @@ import json
 import sys
 import time
 import traceback
+import unicodedata
 from pathlib import Path
 from typing import Any
 
+from app.services.plan_order import order_by_dependencies
 from app.services.storage.cache_store import CacheStore
 
 
@@ -33,6 +35,41 @@ def _load_cadquery() -> Any:
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
+
+
+def _execution_order(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Order the plan's steps the way the compiled build_model() calls them.
+
+    This loop runs the step functions itself rather than calling build_model(),
+    so that it can cache each step's artifact - which means it has to reach the
+    same order the compiler did, or the cached chain describes a different
+    program from the one the user is reading.
+
+    Names are matched on their NFKC form, which is what the compiler does and
+    what Python itself does to identifiers: the ligature "ﬁx" is a valid step id
+    that binds "fix". Matching raw here would resolve a dependency the compiler
+    resolved into nothing, and the two would run different orders.
+
+    A dependency naming a step the plan does not build is dropped, same as in
+    the compiler, where it is a warning. A cycle is a compile error and never
+    reaches the executor; if one does anyway, running those steps in plan order
+    at the end is better than dropping them, because the failure then names a
+    step.
+    """
+    by_binding = {unicodedata.normalize("NFKC", step["id"]): step["id"] for step in steps}
+    by_id = {step["id"]: step for step in steps}
+    dependencies = {
+        step["id"]: {
+            by_binding[binding]
+            for binding in (
+                unicodedata.normalize("NFKC", name) for name in step.get("depends_on", [])
+            )
+            if binding in by_binding
+        }
+        for step in steps
+    }
+    ordered, unorderable = order_by_dependencies(list(by_id), dependencies)
+    return [by_id[step_id] for step_id in ordered + unorderable]
 
 
 def main() -> None:
@@ -93,7 +130,8 @@ def main() -> None:
         exec(compile(source, payload["source_path"], "exec"), namespace)
         module_loaded = True
 
-        for step in plan["steps"]:
+        ordered_steps = _execution_order(plan["steps"])
+        for step in ordered_steps:
             running_step = step["id"]
             if dirty_from and step["id"] == dirty_from:
                 encountered_dirty = True
@@ -231,7 +269,10 @@ def main() -> None:
         if not all(validation_checks.values()):
             result["failure"] = {
                 "failure_type": "geometry_validation_failed",
-                "failed_step_id": plan["steps"][-1]["id"] if plan["steps"] else None,
+                # The last step that ran, not the last one the plan listed. The
+                # loop above follows depends_on, so those are not always the
+                # same step and the repair loop tunes whichever one it is given.
+                "failed_step_id": ordered_steps[-1]["id"] if ordered_steps else None,
                 "message": "Build finished but failed geometry acceptance checks.",
                 "next_action": "Revise the plan parameters or inspect the generated source.",
                 "attribution_basis": "failed_step",

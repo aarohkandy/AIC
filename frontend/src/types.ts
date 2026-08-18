@@ -50,7 +50,13 @@ export type CompileResult = {
   source: string
   editable_regions: EditableRegion[]
   whitelist_findings: { severity: 'info' | 'warning' | 'error'; message: string }[]
-  diagnostics: { level: 'info' | 'warning' | 'error'; code: string; message: string }[]
+  diagnostics: {
+    level: 'info' | 'warning' | 'error'
+    code: string
+    message: string
+    /** Set when the diagnostic is about one step; null when it is about the plan. */
+    step_id?: string | null
+  }[]
 }
 
 export type ArtifactPaths = {

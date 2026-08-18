@@ -18,6 +18,7 @@ from app.services.cadquery_macros import (
     emit_step_source,
     macro_parameter_names,
 )
+from app.services.plan_order import order_by_dependencies
 from app.services.validation.source_validator import SourceValidator
 
 MANUAL_MACRO = "manual_feature"
@@ -68,6 +69,11 @@ class CadQueryCompiler:
     exist. ``manual_feature`` is the planner's escape hatch for shapes the
     macro library does not cover: it compiles to a pass-through and a
     warning, so the rest of the plan still builds.
+
+    ``build_model`` calls the steps in dependency order rather than the
+    order the plan happened to list them in. A plan the compiler cannot
+    order is refused with the step named instead of compiled into a module
+    that runs and fails.
     """
 
     def __init__(self, validator: SourceValidator) -> None:
@@ -88,7 +94,11 @@ class CadQueryCompiler:
         ]
         editable_regions: list[EditableRegion] = []
         emitted_step_ids: list[str] = []
-        emitted_bindings: set[str] = set()
+        # Bound name -> the step id that bound it. Doubles as the duplicate
+        # check and as the lookup that resolves a depends_on entry to a
+        # function the module actually defines.
+        emitted_bindings: dict[str, str] = {}
+        declared_dependencies: dict[str, list[str]] = {}
 
         for step in plan.steps:
             if not step.id.isidentifier() or keyword.iskeyword(step.id):
@@ -96,6 +106,7 @@ class CadQueryCompiler:
                     CompileDiagnostic(
                         level="error",
                         code="invalid_step_id",
+                        step_id=step.id,
                         message=(
                             f"Step id {step.id!r} is not a usable Python function name. "
                             "Plan steps need snake_case identifiers."
@@ -116,6 +127,7 @@ class CadQueryCompiler:
                     CompileDiagnostic(
                         level="error",
                         code="reserved_step_id",
+                        step_id=step.id,
                         message=(
                             f"Step id {step.id!r} is reserved by the generated module. "
                             "Rename the step."
@@ -129,6 +141,7 @@ class CadQueryCompiler:
                     CompileDiagnostic(
                         level="error",
                         code="duplicate_step_id",
+                        step_id=step.id,
                         message=(
                             f"Step id {step.id!r} appears twice. The second definition would "
                             "shadow the first and the built model would not match the plan."
@@ -142,6 +155,7 @@ class CadQueryCompiler:
                     CompileDiagnostic(
                         level="warning",
                         code="manual_step",
+                        step_id=step.id,
                         message=(
                             f"Step {step.id} ({step.intent}) has no macro and compiles to a "
                             "pass-through. Follow its manual instructions in CAD; the "
@@ -155,6 +169,7 @@ class CadQueryCompiler:
                     CompileDiagnostic(
                         level="error",
                         code="unsupported_macro",
+                        step_id=step.id,
                         message=(
                             f"Step {step.id} uses macro {step.primitive_or_macro}, which the "
                             "compiler does not implement. Use manual_feature for shapes "
@@ -179,6 +194,7 @@ class CadQueryCompiler:
                         CompileDiagnostic(
                             level="error",
                             code="missing_parameter",
+                            step_id=step.id,
                             message=(
                                 f"Step {step.id} does not supply {exc.args[0]!r}, which macro "
                                 f"{step.primitive_or_macro} needs."
@@ -200,7 +216,13 @@ class CadQueryCompiler:
                 )
             )
             emitted_step_ids.append(step.id)
-            emitted_bindings.add(binding)
+            emitted_bindings[binding] = step.id
+            declared_dependencies[step.id] = list(step.depends_on)
+
+        call_order, ordering_diagnostics = self._call_order(
+            emitted_step_ids, declared_dependencies, emitted_bindings
+        )
+        diagnostics.extend(ordering_diagnostics)
 
         source_lines.extend(
             [
@@ -208,7 +230,7 @@ class CadQueryCompiler:
                 "    state = None",
             ]
         )
-        source_lines.extend(f"    state = {step_id}(state)" for step_id in emitted_step_ids)
+        source_lines.extend(f"    state = {step_id}(state)" for step_id in call_order)
         source_lines.extend(["    return state", ""])
 
         if not emitted_step_ids:
@@ -236,6 +258,76 @@ class CadQueryCompiler:
             diagnostics=diagnostics,
         )
 
+    @staticmethod
+    def _call_order(
+        emitted_step_ids: list[str],
+        declared_dependencies: dict[str, list[str]],
+        emitted_bindings: dict[str, str],
+    ) -> tuple[list[str], list[CompileDiagnostic]]:
+        """Sort the emitted steps into the order build_model() has to call them in.
+
+        The driver used to call them in the order the plan listed them, which is
+        right for the rule-based planner and wrong for a model that puts a
+        hollow ahead of the body it hollows: the module compiled, the whitelist
+        passed, and build_model() died on ``'NoneType' object has no attribute
+        'faces'``. Plan order is the tie-break, so a plan that was already in
+        dependency order emits the source it always did.
+
+        A cycle is an error: there is no order, so the caller refuses the plan
+        by name rather than picking one and hoping. A dependency naming a step
+        this plan does not build is only a warning, and the edge is dropped. The
+        local planner's prompt asks for step ids there but nothing enforces it,
+        and a model that writes a human label ("create outer body") for a plan
+        that is already in the right order would otherwise have its whole build
+        refused for a plan that used to compile and run. Dropping the edge falls
+        back to plan order for that step, which is exactly what the driver did
+        before it sorted at all.
+        """
+        diagnostics: list[CompileDiagnostic] = []
+        dependencies: dict[str, set[str]] = {}
+
+        for step_id in emitted_step_ids:
+            resolved: set[str] = set()
+            for dependency in declared_dependencies[step_id]:
+                # Steps are matched on their bound name for the same reason the
+                # duplicate check is: "ﬁx" and "fix" are one function.
+                target = emitted_bindings.get(unicodedata.normalize("NFKC", dependency))
+                if target is None:
+                    diagnostics.append(
+                        CompileDiagnostic(
+                            level="warning",
+                            code="unknown_dependency",
+                            step_id=step_id,
+                            message=(
+                                f"Step {step_id} depends on {dependency!r}, which this plan does "
+                                "not build, so that ordering was ignored and the step stayed "
+                                "where the plan listed it. Name a step id the plan compiles."
+                            ),
+                        )
+                    )
+                    continue
+                resolved.add(target)
+            dependencies[step_id] = resolved
+
+        ordered, unorderable = order_by_dependencies(emitted_step_ids, dependencies)
+        if unorderable:
+            diagnostics.append(
+                CompileDiagnostic(
+                    level="error",
+                    code="dependency_cycle",
+                    step_id=unorderable[0],
+                    message=(
+                        f"depends_on forms a cycle through {', '.join(unorderable)}, so there is "
+                        "no order in which build_model() can call those steps. Break the cycle."
+                    ),
+                )
+            )
+            # The cycle is already an error, so this module will not be run. Its
+            # steps still belong in the driver: the editable regions promise
+            # they were emitted, and leaving them out would say otherwise.
+            ordered.extend(unorderable)
+        return ordered, diagnostics
+
     def _clean_parameters(
         self, step: SemanticStep
     ) -> tuple[dict[str, Any], list[CompileDiagnostic]]:
@@ -261,6 +353,7 @@ class CadQueryCompiler:
                 CompileDiagnostic(
                     level="error",
                     code="missing_parameter",
+                    step_id=step.id,
                     message=(
                         f"Step {step.id} does not supply {', '.join(missing)}. Macro "
                         f"{step.primitive_or_macro} needs {', '.join(sorted(used))}."
@@ -279,6 +372,7 @@ class CadQueryCompiler:
                         CompileDiagnostic(
                             level="error",
                             code="non_text_parameter",
+                            step_id=step.id,
                             message=(
                                 f"Step {step.id} parameter {key!r} is {value!r}. Macro "
                                 f"{step.primitive_or_macro} needs a CadQuery selector string "
@@ -293,6 +387,7 @@ class CadQueryCompiler:
                     CompileDiagnostic(
                         level="error",
                         code="non_numeric_parameter",
+                        step_id=step.id,
                         message=(
                             f"Step {step.id} parameter {key!r} is {value!r}. Macro "
                             f"{step.primitive_or_macro} needs a plain number in millimetres "

@@ -1,5 +1,6 @@
 import sys
 import types
+from collections.abc import Sequence
 from contextlib import contextmanager
 from typing import Any
 
@@ -51,13 +52,18 @@ def stub_cadquery():
             sys.modules["cadquery"] = previous
 
 
-def make_step(step_id: str, macro: str, parameters: dict[str, Any]) -> SemanticStep:
+def make_step(
+    step_id: str,
+    macro: str,
+    parameters: dict[str, Any],
+    depends_on: Sequence[str] = (),
+) -> SemanticStep:
     return SemanticStep(
         id=step_id,
         intent=f"Step {step_id}",
         primitive_or_macro=macro,
         parameters=parameters,
-        depends_on=[],
+        depends_on=list(depends_on),
         postcondition=f"{step_id} done",
     )
 
@@ -73,6 +79,10 @@ def compiler() -> CadQueryCompiler:
 
 def errors(result: CompileResult) -> list[str]:
     return [diagnostic.code for diagnostic in result.diagnostics if diagnostic.level == "error"]
+
+
+def warnings(result: CompileResult) -> list[str]:
+    return [diagnostic.code for diagnostic in result.diagnostics if diagnostic.level == "warning"]
 
 
 def test_compiler_returns_step_functions_and_regions(
@@ -381,3 +391,162 @@ def test_a_syntax_error_names_the_line_it_is_on() -> None:
     assert len(findings) == 1
     assert findings[0].severity == "error"
     assert "line 3" in findings[0].message
+
+
+# The rule-based planner emits its steps in dependency order, so the driver
+# could get away with plan order. The default planner is the local model, and a
+# model will happily list a hollow ahead of the body it hollows.
+
+MUG_BODY = {"outer_diameter": 86, "height": 96}
+MUG_HANDLE = {
+    "outer_diameter": 86,
+    "handle_width": 28,
+    "handle_span": 46.08,
+    "handle_thickness": 12,
+    "offset": 24,
+    "z_center": 49.92,
+}
+
+
+def driver_calls(result: CompileResult) -> list[str]:
+    body = result.source.split("def build_model():\n", 1)[1]
+    return [line.strip() for line in body.splitlines() if line.startswith("    state = ")]
+
+
+def test_steps_are_called_in_dependency_order_not_plan_order(
+    compiler: CadQueryCompiler,
+) -> None:
+    plan = make_plan(
+        make_step("hollow_body", "hollow_mug_body", {"wall_thickness": 4}, ["create_outer_body"]),
+        make_step("create_outer_body", "create_mug_body", MUG_BODY),
+    )
+
+    result = compiler.compile(plan)
+
+    assert errors(result) == []
+    assert driver_calls(result) == [
+        "state = None",
+        "state = create_outer_body(state)",
+        "state = hollow_body(state)",
+    ]
+    with stub_cadquery() as calls:
+        namespace: dict[str, Any] = {}
+        exec(compile(result.source, "<generated>", "exec"), namespace)
+        state = namespace["build_model"]()
+
+    assert isinstance(state, RecordingShape)
+    # The body has to exist before anything shells it. Called the other way
+    # round this raises AttributeError on None instead.
+    assert [name for name, _ in calls] == ["Workplane", "circle", "extrude", "faces", "shell"]
+
+
+def test_a_plan_already_in_order_emits_the_source_it_always_did(
+    compiler: CadQueryCompiler,
+) -> None:
+    steps = [
+        ("create_outer_body", "create_mug_body", MUG_BODY, []),
+        ("hollow_body", "hollow_mug_body", {"wall_thickness": 4}, ["create_outer_body"]),
+        ("add_handle", "add_mug_handle", MUG_HANDLE, ["hollow_body"]),
+    ]
+    declared = make_plan(*(make_step(i, macro, params, deps) for i, macro, params, deps in steps))
+    ignored = make_plan(*(make_step(i, macro, params) for i, macro, params, _ in steps))
+
+    result = compiler.compile(declared)
+    assert errors(result) == []
+    assert len(driver_calls(result)) == 4
+    assert result.source == compiler.compile(ignored).source
+
+
+def test_a_dependency_the_plan_does_not_build_is_named_but_does_not_block(
+    compiler: CadQueryCompiler,
+) -> None:
+    plan = make_plan(
+        make_step("hollow_body", "hollow_mug_body", {"wall_thickness": 4}, ["create_outer_body"])
+    )
+
+    result = compiler.compile(plan)
+
+    assert errors(result) == []
+    assert warnings(result) == ["unknown_dependency"]
+    unknown = next(d for d in result.diagnostics if d.code == "unknown_dependency")
+    assert unknown.step_id == "hollow_body"
+    assert "create_outer_body" in unknown.message
+
+
+def test_a_dependency_written_as_a_label_still_builds_the_plan(
+    compiler: CadQueryCompiler,
+) -> None:
+    # Nothing makes the local planner write ids in depends_on, and it is not
+    # asked for a particular order either. A model that lists the steps
+    # correctly and then describes the dependency instead of naming it used to
+    # build; refusing that plan outright would be a worse trade than ignoring
+    # the edge it could not resolve.
+    plan = make_plan(
+        make_step("create_outer_body", "create_mug_body", MUG_BODY),
+        make_step("hollow_body", "hollow_mug_body", {"wall_thickness": 4}, ["create outer body"]),
+    )
+
+    result = compiler.compile(plan)
+
+    assert errors(result) == []
+    assert driver_calls(result) == [
+        "state = None",
+        "state = create_outer_body(state)",
+        "state = hollow_body(state)",
+    ]
+    with stub_cadquery() as calls:
+        namespace: dict[str, Any] = {}
+        exec(compile(result.source, "<generated>", "exec"), namespace)
+        namespace["build_model"]()
+
+    assert [name for name, _ in calls] == ["Workplane", "circle", "extrude", "faces", "shell"]
+
+
+def test_a_dependency_on_a_step_that_failed_to_compile_is_named_too(
+    compiler: CadQueryCompiler,
+) -> None:
+    # Skipping the body is already an error, but the plan is now short a step
+    # that another step was counting on, and saying so is what stops the
+    # executor from blaming hollow_body for the missing geometry.
+    plan = make_plan(
+        make_step("create_outer_body", "create_teapot", MUG_BODY),
+        make_step("hollow_body", "hollow_mug_body", {"wall_thickness": 4}, ["create_outer_body"]),
+    )
+
+    result = compiler.compile(plan)
+
+    assert errors(result) == ["unsupported_macro"]
+    assert warnings(result) == ["unknown_dependency"]
+
+
+def test_a_dependency_cycle_is_refused_by_name(compiler: CadQueryCompiler) -> None:
+    plan = make_plan(
+        make_step("create_outer_body", "create_mug_body", MUG_BODY, ["hollow_body"]),
+        make_step("hollow_body", "hollow_mug_body", {"wall_thickness": 4}, ["create_outer_body"]),
+    )
+
+    result = compiler.compile(plan)
+
+    assert errors(result) == ["dependency_cycle"]
+    cycle = next(d for d in result.diagnostics if d.code == "dependency_cycle")
+    assert cycle.step_id == "create_outer_body"
+    assert "create_outer_body, hollow_body" in cycle.message
+    # Both steps were emitted, so both stay in the driver. Nothing runs it: the
+    # error blocks the build before the executor sees the module.
+    compile(result.source, "<generated>", "exec")
+    assert len(driver_calls(result)) == 3
+
+
+def test_a_diagnostic_about_one_step_carries_its_id(compiler: CadQueryCompiler) -> None:
+    plan = make_plan(
+        make_step("create_outer_body", "create_mug_body", {"outer_diameter": "wide", "height": 96}),
+        make_step("carve_spout", "manual_feature", {}),
+    )
+
+    result = compiler.compile(plan)
+
+    step_ids = {diagnostic.code: diagnostic.step_id for diagnostic in result.diagnostics}
+    assert step_ids["non_numeric_parameter"] == "create_outer_body"
+    assert step_ids["manual_step"] == "carve_spout"
+    # step_count is about the plan, not about any one step.
+    assert step_ids["step_count"] is None

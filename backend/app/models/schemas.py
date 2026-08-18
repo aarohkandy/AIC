@@ -58,6 +58,10 @@ class CompileDiagnostic(StrictModel):
     level: Literal["info", "warning", "error"]
     code: str
     message: str
+    # Set on every diagnostic that is about one step, so a caller can point at
+    # it without parsing the id back out of the sentence. Diagnostics about the
+    # plan as a whole leave it None.
+    step_id: str | None = None
 
 
 class WhitelistFinding(StrictModel):

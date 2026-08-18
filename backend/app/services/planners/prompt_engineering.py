@@ -88,6 +88,7 @@ Important:
 - Include workplane, location_notes, size_notes, sketch_constraints, and manual_instructions on every step.
 - Write sketch_constraints so a human can fully define the sketch without guessing.
 - Use concrete numbers everywhere. No placeholders or symbolic references inside strings.
+- Every entry in depends_on must be the id of another step in this same plan, copied exactly. Not a description of it, not a macro name. Leave depends_on empty for a step that can run first.
 - If the object can be approximated by known CAD macros, use them. Otherwise use manual_feature and still provide a strong manual recipe.
 - Every parameter value is in millimetres, whatever unit the brief uses. The brief above is written in {brief.units}, so convert those figures to millimetres before you write them into parameters. Mention the original {brief.units} figure in size_notes if it helps a human follow along.
 - Do not wrap the JSON in markdown.
