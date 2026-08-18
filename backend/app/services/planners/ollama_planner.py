@@ -5,7 +5,12 @@ from typing import Any
 import httpx
 
 from app.core.settings import Settings
-from app.models.schemas import DesignBrief, ModelCallRecord, SemanticBuildPlan, SemanticStep
+from app.models.schemas import (
+    DesignBrief,
+    ModelCallRecord,
+    SemanticBuildPlan,
+    SemanticStep,
+)
 from app.services.planners.prompt_engineering import (
     LOCAL_PLANNER_SYSTEM_PROMPT,
     build_local_planner_prompt,
@@ -38,8 +43,14 @@ OLLAMA_PLAN_SCHEMA = {
                     "workplane": {"type": "string"},
                     "location_notes": {"type": "array", "items": {"type": "string"}},
                     "size_notes": {"type": "array", "items": {"type": "string"}},
-                    "sketch_constraints": {"type": "array", "items": {"type": "string"}},
-                    "manual_instructions": {"type": "array", "items": {"type": "string"}},
+                    "sketch_constraints": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "manual_instructions": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
                     "parameters": {
                         "type": "object",
                         "additionalProperties": {
@@ -109,10 +120,17 @@ class OllamaPlanner:
                 timeout=self.settings.ollama_timeout_seconds,
             )
             response.raise_for_status()
+            body = response.json()
         except httpx.HTTPError as exc:
             raise OllamaPlannerError(f"Ollama planner request failed: {exc}") from exc
+        except ValueError as exc:
+            # Anything else listening on the Ollama port answers 200 with HTML,
+            # and json.JSONDecodeError is not an httpx.HTTPError, so without
+            # this the rule-based fallback never runs and /designs/plan 500s.
+            raise OllamaPlannerError(f"Ollama returned a non-JSON response: {exc}") from exc
 
-        body = response.json()
+        if not isinstance(body, dict):
+            raise OllamaPlannerError("Ollama returned JSON that is not a chat response object.")
         message = body.get("message", {})
         content = message.get("content", "")
         if not content:
@@ -123,7 +141,7 @@ class OllamaPlanner:
         except Exception as exc:
             raise OllamaPlannerError(f"Ollama returned invalid plan JSON: {exc}") from exc
 
-        normalized = self._normalize_plan(plan, brief.units)
+        normalized = self._normalize_plan(plan)
         record = ModelCallRecord(
             model=body.get("model", self.settings.ollama_model),
             provider="ollama",
@@ -144,9 +162,19 @@ class OllamaPlanner:
             )
             response.raise_for_status()
             body = response.json()
-        except httpx.HTTPError as exc:
-            return {"available": False, "reason": str(exc), "model": self.settings.ollama_model}
+        except (httpx.HTTPError, ValueError) as exc:
+            return {
+                "available": False,
+                "reason": str(exc),
+                "model": self.settings.ollama_model,
+            }
 
+        if not isinstance(body, dict):
+            return {
+                "available": False,
+                "reason": "Ollama tag listing was not a JSON object.",
+                "model": self.settings.ollama_model,
+            }
         models = [item.get("name", "") for item in body.get("models", [])]
         return {
             "available": self.settings.ollama_model in models,
@@ -154,20 +182,26 @@ class OllamaPlanner:
             "installed_models": models,
         }
 
-    def _normalize_plan(self, plan: SemanticBuildPlan, units: str) -> SemanticBuildPlan:
-        normalized_steps = [self._normalize_step(step, units) for step in plan.steps]
-        plan.steps = normalized_steps
+    def _normalize_plan(self, plan: SemanticBuildPlan) -> SemanticBuildPlan:
+        """Fill in the fields the model left blank.
+
+        Parameters are millimetres here regardless of the brief's own unit,
+        which is what the planning prompt asks for and what the compiler and
+        macros assume further down. Labelling them with the brief's unit
+        instead is how a centimetre brief turns into a silent 10x error.
+        """
+        plan.steps = [self._normalize_step(step) for step in plan.steps]
         if not plan.assumptions:
-            plan.assumptions = [f"Units default to {units}."]
+            plan.assumptions = ["Every dimension in this plan is in millimetres."]
         return plan
 
-    def _normalize_step(self, step: SemanticStep, units: str) -> SemanticStep:
+    def _normalize_step(self, step: SemanticStep) -> SemanticStep:
         if not step.workplane:
             step.workplane = "XY"
         if not step.location_notes:
             step.location_notes = [f"Use the {step.workplane} workplane as the reference frame."]
         if not step.size_notes and step.parameters:
-            step.size_notes = [f"{key} = {value} {units}" for key, value in step.parameters.items()]
+            step.size_notes = [f"{key} = {value} mm" for key, value in step.parameters.items()]
         if not step.sketch_constraints:
             step.sketch_constraints = [
                 "Anchor the sketch to the origin or a named reference so it is fully defined."
