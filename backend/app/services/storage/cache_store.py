@@ -4,18 +4,23 @@ import hashlib
 import json
 from pathlib import Path
 
-from app.core.settings import Settings
 from app.models.schemas import CacheEntry
 
 
 class CacheStore:
-    """Content-addressed store for per-step build cache entries."""
+    """Content-addressed store for per-step build cache entries.
 
-    def __init__(self, settings: Settings) -> None:
-        self.settings = settings
-        self.settings.cache_root.mkdir(parents=True, exist_ok=True)
+    Used from the executor subprocess, which is handed a cache root and a
+    compiler version in its JSON payload rather than a Settings object.
+    """
 
-    def make_hash(self, payload: object) -> str:
+    def __init__(self, cache_root: Path, compiler_version: str) -> None:
+        self.cache_root = cache_root
+        self.compiler_version = compiler_version
+        self.cache_root.mkdir(parents=True, exist_ok=True)
+
+    @staticmethod
+    def make_hash(payload: object) -> str:
         normalized = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
         return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
 
@@ -32,24 +37,36 @@ class CacheStore:
                 "step_id": step_id,
                 "parameter_hash": parameter_hash,
                 "parent_artifact_hash": parent_artifact_hash,
-                "compiler_version": self.settings.compiler_version,
+                "compiler_version": self.compiler_version,
             }
         )
 
     def entry_dir(self, cache_key: str) -> Path:
-        path = self.settings.cache_root / cache_key
-        path.mkdir(parents=True, exist_ok=True)
-        return path
+        return self.cache_root / cache_key
 
     def entry_path(self, cache_key: str) -> Path:
         return self.entry_dir(cache_key) / "entry.json"
 
-    def get(self, cache_key: str) -> CacheEntry | None:
-        path = self.entry_path(cache_key)
-        if not path.exists():
+    def artifact_path(self, cache_key: str, step_id: str) -> Path:
+        return self.entry_dir(cache_key) / f"{step_id}.step"
+
+    def metrics_path(self, cache_key: str, step_id: str) -> Path:
+        return self.entry_dir(cache_key) / f"{step_id}-metrics.json"
+
+    def get(self, cache_key: str, step_id: str) -> CacheEntry | None:
+        """Return the entry only when its artifact and metrics files are both on disk.
+
+        ``entry.json`` is written last, but a half-populated directory from an
+        interrupted export would otherwise read as a hit.
+        """
+        entry_path = self.entry_path(cache_key)
+        if not (
+            entry_path.exists()
+            and self.artifact_path(cache_key, step_id).exists()
+            and self.metrics_path(cache_key, step_id).exists()
+        ):
             return None
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        return CacheEntry.model_validate(payload)
+        return CacheEntry.model_validate_json(entry_path.read_text(encoding="utf-8"))
 
     def save(
         self,
@@ -67,10 +84,11 @@ class CacheStore:
             step_id=step_id,
             parent_artifact_hash=parent_artifact_hash,
             parameter_hash=parameter_hash,
-            compiler_version=self.settings.compiler_version,
+            compiler_version=self.compiler_version,
             artifact_path=str(artifact_path),
             metrics_path=str(metrics_path),
         )
+        self.entry_dir(cache_key).mkdir(parents=True, exist_ok=True)
         self.entry_path(cache_key).write_text(
             json.dumps(entry.model_dump(mode="json"), indent=2),
             encoding="utf-8",
