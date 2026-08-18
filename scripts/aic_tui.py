@@ -9,6 +9,8 @@ from textwrap import fill
 SUPPORTED_PYTHON = (3, 11)
 
 try:
+    from pydantic import ValidationError
+
     from app.core.settings import Settings
     from app.models.schemas import DesignBrief
     from app.services.gateway.model_gateway import ModelGateway
@@ -68,8 +70,13 @@ def build_gateway() -> ModelGateway:
 
 
 def render_plan(prompt: str, *, as_json: bool = False) -> int:
+    try:
+        brief = DesignBrief(prompt=prompt)
+    except ValidationError as exc:
+        # The API bounds the prompt and the CLI builds the same model, so `aic ""`
+        # and an over-long prompt both used to end in a pydantic traceback.
+        raise SystemExit(f"aic: bad prompt - {exc.errors()[0]['msg'].lower()}.") from exc
     gateway = build_gateway()
-    brief = DesignBrief(prompt=prompt)
     plan, risk, record, warnings = gateway.plan(brief)
 
     if as_json:

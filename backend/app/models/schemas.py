@@ -18,7 +18,12 @@ class TargetDimensions(StrictModel):
 
 
 class DesignBrief(StrictModel):
-    prompt: str
+    # The prompt is regex-scanned for dimensions and then goes into the local
+    # planner's context verbatim, and neither is worth doing to an empty string
+    # or to a pasted document. 2000 characters is several paragraphs - far past
+    # what one part needs to be described in, and short enough that it cannot
+    # crowd the macro catalog out of an 8B model's context window.
+    prompt: str = Field(min_length=1, max_length=2000)
     units: Literal["mm", "cm", "in"] = "mm"
     target_dims: TargetDimensions = Field(default_factory=TargetDimensions)
     required_features: list[str] = Field(default_factory=list)
