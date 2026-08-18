@@ -1,8 +1,9 @@
-import { startTransition, useDeferredValue, useEffect, useState } from 'react'
+import { startTransition, useEffect, useRef, useState } from 'react'
 import { artifactUrl, buildDesign, compilePlan, planDesign, reviseDesign } from './api'
-import { initializeDesktop, getDesktopStatus, setApiBaseUrl } from './desktop'
+import { initializeDesktop, getDesktopStatus, isDesktopShell, setApiBaseUrl } from './desktop'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { ModelViewer } from './components/ModelViewer'
+import { releasePreview } from './previewCache'
 import type {
   BuildResult,
   CompileResult,
@@ -10,6 +11,12 @@ import type {
   DesktopStatus,
   SemanticBuildPlan,
 } from './types'
+
+// Health polling is cheap but not free: in browser mode every tick is a /health request
+// and the backend probes Ollama over HTTP to answer it. Poll fast only while we are
+// waiting for the shell to come up.
+const BOOTSTRAP_POLL_MS = 1500
+const READY_POLL_MS = 10000
 
 const initialBrief: DesignBrief = {
   prompt: 'Design a mug with an 86 mm diameter, 96 mm height, 4 mm walls, and a sturdy handle.',
@@ -36,40 +43,68 @@ function App() {
   const [warnings, setWarnings] = useState<string[]>([])
   const [plannerMeta, setPlannerMeta] = useState<{ path: string; model: string; risk: number } | null>(null)
   const [revisionText, setRevisionText] = useState('Make the handle thickness 10 mm.')
-  const [codeDraft, setCodeDraft] = useState('')
+  const [compiledSource, setCompiledSource] = useState('')
+  const [sourceCopied, setSourceCopied] = useState(false)
+  const [buildSerial, setBuildSerial] = useState(0)
   const [status, setStatus] = useState<'idle' | 'planning' | 'building' | 'revising'>('idle')
   const [desktopStatus, setDesktopShellStatus] = useState<DesktopStatus | null>(null)
   const [desktopBusy, setDesktopBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const deferredCode = useDeferredValue(codeDraft)
+  // Every build of a design overwrites the same GLB path, but useLoader caches on the URL
+  // for the life of the page and keeps a failed load cached as an error it re-throws on
+  // every later render. Tagging the URL with the build counter gives each result its own
+  // cache entry, so a revision shows the new geometry and a bad preview can recover.
   const previewUrl =
     designId && buildResult?.artifacts.glb_path && buildResult.status !== 'failed'
-      ? artifactUrl(designId, 'glb')
+      ? `${artifactUrl(designId, 'glb')}?build=${buildSerial}`
       : null
   const workspaceReady = desktopStatus?.bootstrapState === 'Ready'
   const actionDisabled = status !== 'idle' || !workspaceReady
 
+  // A per-build URL means a per-build cache entry, and that cache has no size
+  // limit. Once the new preview is on screen the previous one is nobody's, so
+  // hand it back rather than keep every model of the session in memory.
+  const shownPreviewUrl = useRef<string | null>(null)
+  useEffect(() => {
+    const previous = shownPreviewUrl.current
+    shownPreviewUrl.current = previewUrl
+    if (previous && previous !== previewUrl) {
+      releasePreview(previous)
+    }
+  }, [previewUrl])
+
   useEffect(() => {
     let active = true
+    let timer = 0
 
-    async function syncDesktopStatus() {
-      const nextStatus = await getDesktopStatus()
+    // Each tick is scheduled only after the previous one settles, so a slow or hanging
+    // health check delays the next poll instead of stacking up behind it.
+    async function pollDesktopStatus() {
+      let nextStatus: DesktopStatus | null = null
+      try {
+        nextStatus = await getDesktopStatus()
+      } catch (caught) {
+        console.error('Desktop status poll failed:', caught)
+      }
       if (!active) {
         return
       }
-      setApiBaseUrl(nextStatus.backendUrl)
-      setDesktopShellStatus(nextStatus)
+      if (nextStatus) {
+        setApiBaseUrl(nextStatus.backendUrl)
+        setDesktopShellStatus(nextStatus)
+      }
+      const delay = nextStatus?.bootstrapState === 'Ready' ? READY_POLL_MS : BOOTSTRAP_POLL_MS
+      timer = window.setTimeout(() => {
+        void pollDesktopStatus()
+      }, delay)
     }
 
-    void syncDesktopStatus()
-    const timer = window.setInterval(() => {
-      void syncDesktopStatus()
-    }, 1500)
+    void pollDesktopStatus()
 
     return () => {
       active = false
-      window.clearInterval(timer)
+      window.clearTimeout(timer)
     }
   }, [])
 
@@ -106,7 +141,7 @@ function App() {
           model: planned.model_call.model,
           risk: planned.planning_risk_score,
         })
-        setCodeDraft(compiled.source)
+        setCompiledSource(compiled.source)
       })
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Planning failed.')
@@ -125,13 +160,14 @@ function App() {
         setPlan(built.plan)
         setCompileResult(built.compile)
         setBuildResult(built.build)
+        setBuildSerial((serial) => serial + 1)
         setWarnings(built.warnings)
         setPlannerMeta({
           path: built.model_call.path,
           model: built.model_call.model,
           risk: built.build.metrics.planning_risk_score,
         })
-        setCodeDraft(built.compile.source)
+        setCompiledSource(built.compile.source)
       })
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Build failed.')
@@ -154,16 +190,27 @@ function App() {
         setWarnings(revised.warnings)
         if (revised.compile) {
           setCompileResult(revised.compile)
-          setCodeDraft(revised.compile.source)
+          setCompiledSource(revised.compile.source)
         }
         if (revised.build) {
           setBuildResult(revised.build)
+          setBuildSerial((serial) => serial + 1)
         }
       })
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Revision failed.')
     } finally {
       setStatus('idle')
+    }
+  }
+
+  async function handleCopySource() {
+    try {
+      await navigator.clipboard.writeText(compiledSource)
+      setSourceCopied(true)
+      window.setTimeout(() => setSourceCopied(false), 1500)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not copy the source.')
     }
   }
 
@@ -308,7 +355,19 @@ function App() {
           </button>
           {!workspaceReady ? (
             <div className="banner info-banner">
-              Desktop bootstrap must reach <strong>Ready</strong> before plan/build actions are enabled.
+              {isDesktopShell() ? (
+                <>
+                  Desktop bootstrap must reach <strong>Ready</strong> before plan/build actions are
+                  enabled.
+                </>
+              ) : (
+                <>
+                  Plan/build actions stay disabled until the backend answers. Start it with{' '}
+                  <code>python -m uvicorn app.main:app --port 8000</code> from <code>backend/</code>.
+                  The dev server proxies <code>/health</code> and <code>/designs</code> to it.
+                </>
+              )}
+              {desktopStatus?.lastError ? <> Last error: {desktopStatus.lastError}</> : null}
             </div>
           ) : null}
           {error ? <div className="banner error-banner">{error}</div> : null}
@@ -407,14 +466,21 @@ function App() {
         <section className="panel">
           <div className="panel-header">
             <h2>Generated Code</h2>
-            <p>{deferredCode ? `${deferredCode.split('\n').length} lines of CadQuery source.` : 'No compile output yet.'}</p>
+            <p>
+              {compiledSource
+                ? `${compiledSource.split('\n').length} lines of CadQuery source, read-only.`
+                : 'No compile output yet.'}
+              {' '}
+              Builds always recompile from the plan, so edit the brief or send a revision rather
+              than the source.
+            </p>
           </div>
-          <textarea
-            className="code-editor"
-            value={codeDraft}
-            onChange={(event) => setCodeDraft(event.target.value)}
-            spellCheck={false}
-          />
+          <textarea className="code-editor" value={compiledSource} readOnly spellCheck={false} />
+          <div className="action-row">
+            <button className="ghost" onClick={handleCopySource} disabled={!compiledSource}>
+              {sourceCopied ? 'Copied' : 'Copy source'}
+            </button>
+          </div>
           {compileResult ? (
             <div className="code-metadata">
               <div>
@@ -449,7 +515,10 @@ function App() {
           </div>
           <div className="viewer-shell">
             {previewUrl ? (
-              <ErrorBoundary fallback={<div className="empty-state">Preview failed to load.</div>}>
+              <ErrorBoundary
+                fallback={<div className="empty-state">Preview failed to load.</div>}
+                resetKey={previewUrl}
+              >
                 <ModelViewer url={previewUrl} />
               </ErrorBoundary>
             ) : (
@@ -458,7 +527,9 @@ function App() {
                   ? `${buildResult.failure.message} ${buildResult.failure.next_action}`
                   : workspaceReady
                     ? 'Build the design to render the GLB preview.'
-                    : 'Wait for the desktop shell to finish runtime setup.'}
+                    : isDesktopShell()
+                      ? 'Wait for the desktop shell to finish runtime setup.'
+                      : 'Start the backend before building a preview.'}
               </div>
             )}
           </div>

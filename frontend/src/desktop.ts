@@ -3,7 +3,7 @@ import type { DesktopStatus } from './types'
 
 let apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? ''
 
-function isDesktopShell() {
+export function isDesktopShell() {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 }
 
