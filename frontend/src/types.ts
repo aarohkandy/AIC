@@ -54,7 +54,6 @@ export type CompileResult = {
 }
 
 export type ArtifactPaths = {
-  step_path?: string | null
   glb_path?: string | null
   step_export_path?: string | null
   source_path?: string | null

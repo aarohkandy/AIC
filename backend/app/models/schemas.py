@@ -79,7 +79,6 @@ class ValidationReport(StrictModel):
 
 
 class ArtifactPaths(StrictModel):
-    step_path: str | None = None
     glb_path: str | None = None
     step_export_path: str | None = None
     source_path: str | None = None
