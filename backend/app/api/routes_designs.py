@@ -16,9 +16,16 @@ from app.models.schemas import (
     ReviseRequest,
     ReviseResponse,
 )
-from app.services.design_service import DesignService
+from app.services.design_service import ARTIFACT_KINDS, DesignService
 
 router = APIRouter(prefix="/designs", tags=["designs"])
+
+ARTIFACT_MEDIA_TYPES = {
+    "glb": "model/gltf-binary",
+    "stl": "model/stl",
+    "step_export": "application/step",
+    "source": "text/x-python",
+}
 
 
 @router.post("/plan", response_model=PlanResponse)
@@ -62,14 +69,13 @@ def get_artifact(
     kind: str,
     service: DesignService = Depends(get_design_service),
 ) -> FileResponse:
+    if kind not in ARTIFACT_KINDS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown artifact kind {kind!r}. Expected one of: {', '.join(ARTIFACT_KINDS)}.",
+        )
     path: Path | None = service.artifact_path(design_id, kind)
     if path is None or not path.exists():
         raise HTTPException(status_code=404, detail="Artifact not found")
-    media_type = "application/octet-stream"
-    if path.suffix == ".glb":
-        media_type = "model/gltf-binary"
-    if path.suffix == ".step":
-        media_type = "application/step"
-    if path.suffix == ".stl":
-        media_type = "model/stl"
+    media_type = ARTIFACT_MEDIA_TYPES.get(kind, "application/octet-stream")
     return FileResponse(path, media_type=media_type, filename=path.name)

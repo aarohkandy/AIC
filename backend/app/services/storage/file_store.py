@@ -4,6 +4,8 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
+from pydantic import ValidationError
+
 from app.core.settings import Settings
 from app.models.schemas import DesignRecord
 
@@ -16,9 +18,9 @@ class FileStore:
         self.settings.designs_root.mkdir(parents=True, exist_ok=True)
 
     def design_dir(self, design_id: str) -> Path:
-        path = self.settings.designs_root / design_id
-        path.mkdir(parents=True, exist_ok=True)
-        return path
+        # No mkdir here: reads go through this too, and creating a directory for
+        # every id someone asks about lets a GET litter the runtime root.
+        return self.settings.designs_root / design_id
 
     def design_record_path(self, design_id: str) -> Path:
         return self.design_dir(design_id) / "record.json"
@@ -47,10 +49,21 @@ class FileStore:
         self.write_json(self.design_record_path(record.design_id), record.model_dump(mode="json"))
 
     def load_record(self, design_id: str) -> DesignRecord | None:
+        """Load a design record, or None if there isn't a readable one.
+
+        runtime/ outlives the code that wrote it. A record left by an older
+        build carries fields this schema no longer has, and StrictModel forbids
+        extras, so validating it raises; a record from an interrupted write is
+        truncated JSON. Both used to escape as a bare 500 on endpoints whose
+        honest answer is 404, so both are treated as "no record here".
+        """
         path = self.design_record_path(design_id)
         if not path.exists():
             return None
-        return DesignRecord.model_validate(self.read_json(path))
+        try:
+            return DesignRecord.model_validate(self.read_json(path))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValidationError):
+            return None
 
     @staticmethod
     def _default(value: object) -> str:
