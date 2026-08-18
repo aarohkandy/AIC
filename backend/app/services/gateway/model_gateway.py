@@ -7,7 +7,12 @@ from typing import Any
 import httpx
 
 from app.core.settings import Settings
-from app.models.schemas import DesignBrief, ExecutorHealth, ModelCallRecord, SemanticBuildPlan
+from app.models.schemas import (
+    DesignBrief,
+    ExecutorHealth,
+    ModelCallRecord,
+    SemanticBuildPlan,
+)
 from app.services.planners.ollama_planner import OllamaPlanner, OllamaPlannerError
 from app.services.planners.rule_based_planner import RuleBasedPlanner
 from app.services.validation.design_validator import DesignValidator
@@ -65,11 +70,12 @@ class ModelGateway:
         local_plan = self.planner.plan(brief)
         if supported_shape:
             warnings.append(
-                "Using deterministic local fallback because the local AI planner failed."
+                "Using the deterministic rule-based planner because the local AI planner failed."
             )
         else:
             warnings.append(
-                "Using deterministic rule-based fallback because the local AI planner failed."
+                "Using the deterministic rule-based planner because the local AI planner failed, "
+                "and no macro family matches this shape, so the plan below is a stand-in."
             )
         return (
             local_plan,
@@ -89,13 +95,13 @@ class ModelGateway:
             return {"available": False, "reason": "Ollama planner is not configured."}
         return self.ollama_planner.health()
 
-    @staticmethod
-    def _supports_rule_based_fallback(prompt: str) -> bool:
-        text = prompt.lower()
-        return any(
-            keyword in text
-            for keyword in ("mug", "cup", "bracket", "box", "enclosure", "stand", "cap", "bottle")
-        )
+    def _supports_rule_based_fallback(self, prompt: str) -> bool:
+        """Ask the fallback planner itself whether it recognizes the shape.
+
+        A second copy of the keyword list drifted away from the planner's own
+        matching rules and reported "capacitor mount" as a supported shape.
+        """
+        return self.planner.infer_kind(prompt) is not None
 
     def executor_health(self) -> ExecutorHealth:
         if self.settings.executor_mode != "containerized":
