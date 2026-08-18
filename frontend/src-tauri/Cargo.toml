@@ -2,7 +2,7 @@
 name = "ai-cad-desktop"
 version = "0.1.0"
 description = "Windows-first desktop shell for AI CAD"
-authors = ["OpenAI"]
+authors = ["Aaroh Kandhare"]
 edition = "2021"
 
 [lib]
