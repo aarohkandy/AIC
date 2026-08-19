@@ -7,8 +7,8 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 *.egg-info/
-.venv/
-.venv-test/
+.venv
+.venv-test
 .env
 .env.*
 !.env.example
