@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import date
+from math import isfinite
 from typing import Any
 
 import httpx
@@ -104,25 +105,40 @@ class ModelGateway:
         return self.planner.infer_kind(prompt) is not None
 
     def executor_health(self) -> ExecutorHealth:
+        """Report whether the containerized executor is ready to be handed work.
+
+        Nothing in this repo writes the health file - whatever provisions the
+        container is expected to - so it is untrusted input, and a crash partway
+        through a write leaves a truncated one behind. /health is what the web
+        app and the Tauri shell poll to decide the backend is alive, and raising
+        here answered that poll with a 500, which both read as "backend down"
+        with no reason attached. A file that will not parse is a health report
+        of its own instead. Nothing here deletes it either: replacing the file
+        belongs to whoever writes it.
+        """
         if self.settings.executor_mode != "containerized":
-            return ExecutorHealth(
-                executor_mode=self.settings.executor_mode,
-                healthy=False,
-                details={"reason": "Hosted calls require a containerized Linux executor."},
-            )
+            return self._unhealthy("Hosted calls require a containerized Linux executor.")
         path = self.settings.health_file
         if not path.exists():
-            return ExecutorHealth(
-                executor_mode=self.settings.executor_mode,
-                healthy=False,
-                details={"reason": "Executor health file is missing."},
-            )
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        healthy = bool(payload.get("healthy"))
+            return self._unhealthy("Executor health file is missing.")
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            # A byte that is not UTF-8 and JSON that stops mid-token both land here.
+            return self._unhealthy(f"Executor health file could not be read: {exc}")
+        if not isinstance(payload, dict):
+            return self._unhealthy("Executor health file is not a JSON object.")
         return ExecutorHealth(
             executor_mode="containerized",
-            healthy=healthy,
+            healthy=bool(payload.get("healthy")),
             details=payload,
+        )
+
+    def _unhealthy(self, reason: str) -> ExecutorHealth:
+        return ExecutorHealth(
+            executor_mode=self.settings.executor_mode,
+            healthy=False,
+            details={"reason": reason},
         )
 
     def _can_use_hosted(
@@ -136,9 +152,7 @@ class ModelGateway:
         health = self.executor_health()
         if not health.healthy:
             return False
-        ledger = self._load_ledger()
-        today = str(date.today())
-        today_counts = ledger.get(today, {"flash": 0, "pro": 0})
+        today_counts = self._today_counts(self._load_ledger())
         use_pro = risk >= 0.35 or prior_flash_failure
         if use_pro:
             if design_pro_call_count >= self.settings.max_pro_calls_per_design:
@@ -197,17 +211,59 @@ class ModelGateway:
             ),
         )
 
-    def _load_ledger(self) -> dict[str, dict[str, int]]:
+    def _load_ledger(self) -> dict[str, Any]:
+        """Read the quota ledger, treating one that will not parse as empty.
+
+        Same reasoning as the health file: this process rewrites the ledger
+        after every hosted call, so an interrupted write leaves a truncated one
+        behind, and refusing to plan because the bookkeeping is damaged is a
+        worse answer than counting today from zero. The cost of being wrong is
+        at most one extra day of hosted calls. The next _record_call rewrites
+        the file from today onward, so any earlier days an unreadable file was
+        holding are gone; nothing reads them anyway, only today's two counts.
+        """
         path = self.settings.quota_file
         if not path.exists():
             return {}
-        return json.loads(path.read_text(encoding="utf-8"))
+        try:
+            ledger = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        return ledger if isinstance(ledger, dict) else {}
+
+    @staticmethod
+    def _today_counts(ledger: dict[str, Any]) -> dict[str, int]:
+        """Today's hosted call counts, reading anything unusable as zero.
+
+        A day entry written before the second tier existed carries only the one
+        it used, and indexing both tiers out of it raised KeyError on the way
+        into a plan.
+        """
+        counts = {"flash": 0, "pro": 0}
+        day = ledger.get(str(date.today()))
+        if not isinstance(day, dict):
+            return counts
+        for tier in ("flash", "pro"):
+            value = day.get(tier)
+            if isinstance(value, (int, float)) and isfinite(value):
+                counts[tier] = int(value)
+        return counts
 
     def _record_call(self, tier: str) -> None:
+        """Count a hosted call, letting an unwritable ledger go uncounted.
+
+        This runs after the call has been made and billed, so a read-only
+        runtime mount or a full disk used to throw away a plan the user had
+        already paid for. Losing a tally entry costs at most one extra hosted
+        call, which is the same trade _load_ledger makes on the way in.
+        """
         path = self.settings.quota_file
         ledger = self._load_ledger()
-        today = str(date.today())
-        ledger.setdefault(today, {"flash": 0, "pro": 0})
-        ledger[today][tier] = int(ledger[today].get(tier, 0)) + 1
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(ledger, indent=2), encoding="utf-8")
+        counts = self._today_counts(ledger)
+        counts[tier] += 1
+        ledger[str(date.today())] = counts
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(ledger, indent=2), encoding="utf-8")
+        except OSError:
+            return
