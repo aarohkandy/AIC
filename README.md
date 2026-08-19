@@ -38,6 +38,12 @@ That runs the planner directly in the terminal with no web app startup. Run
 outside that environment it prints the bootstrap commands and exits 1 rather
 than a traceback.
 
+If a `.venv-test/` directory exists at the repo root, `./aic` uses its
+interpreter instead of the `python3` on PATH, and the Tauri dev shell picks it
+up too (after `AI_CAD_DEV_PYTHON`, ahead of `.venv/`). That is the escape hatch
+for planning without conda: the planner, the API and the compiler are plain
+Python, and only the geometry build needs CadQuery. The directory is gitignored.
+
 1. Create the supported CAD environment from [environment.yml](environment.yml).
 2. Install frontend dependencies:
 
