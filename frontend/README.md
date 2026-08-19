@@ -1,73 +1,72 @@
-# React + TypeScript + Vite
+# AI CAD frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+The React app. One page: type a brief, the backend plans it, the plan compiles
+to CadQuery source, and a build produces a GLB the viewer renders. Plan, source,
+telemetry and preview are all panes of `src/App.tsx`; the rest of `src/` is
+small on purpose.
 
-Currently, two official plugins are available:
+- `api.ts` wraps the four backend calls. Every one carries a deadline and an
+  abort signal, and a FastAPI error body comes back as a sentence the banner can
+  show.
+- `desktop.ts` works out whether the page is running inside the Tauri shell or
+  in a browser against a manually started backend, and polls `/health`.
+- `previewCache.ts` frees a preview's geometry, materials and textures once it
+  has been replaced. three.js disposes nothing on its own.
+- `components/ModelViewer.tsx` is loaded on demand, which keeps three.js out of
+  the first paint. The chunk behind it is around 900 kB, and a build that fails
+  never fetches it.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Running it
 
-## React Compiler
+The app talks to the FastAPI backend in `backend/`, so start that first:
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+cd backend
+python -m uvicorn app.main:app --reload --port 8000
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Then, from here:
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
+npm run dev
 ```
+
+`vite.config.ts` proxies `/designs` and `/health` to `localhost:8000`, so
+browser development needs no base URL. The packaged desktop shell sets one
+instead; `src/desktop.ts` is where that is picked up.
+
+`npm run tauri:dev` runs the same app inside the Tauri shell. That needs a Rust
+toolchain. The crate in `src-tauri/` has not been compiled yet, so treat that
+path as unfinished.
+
+## Tests
+
+```bash
+npm test
+```
+
+That is `vitest run` over the test files in `src/`, in jsdom. Two of them, both
+driving the real module rather than a copy of its logic:
+
+`api.test.ts` stubs `fetch` and checks what the caller gets back. The four error
+bodies the backend and a proxy in front of it can produce, a cancel before and
+during a request, and the per-endpoint deadlines, including that the number the
+status card quotes for an action is the number that action's request actually
+uses. Deadlines run on fake timers, so those cases finish in milliseconds rather
+than the 830 s the four real ones add up to.
+
+`previewCache.test.ts` builds scenes out of real three.js objects and checks
+what the disposal walk reaches: a mesh, an array of materials, a texture in a
+material slot, a mesh nested under a group, and a second release of a URL that
+has already been freed. It also pins the limit: the walk descends into `Mesh`
+and deliberately stops there.
+
+There are no component tests. Rendering `App.tsx` needs React Three Fiber, a
+WebGL context and a backend answering, and faking those three to assert on
+markup buys less than it costs. Nothing tests the preview end to end either, on
+this side or the backend's: producing a GLB needs the CadQuery environment from
+`environment.yml`, and without it a build stops at `cadquery_unavailable`.
+
+`npm run lint` and `npm run build` are the other two checks. CI runs all three,
+on pushes to `main` and on pull requests.
