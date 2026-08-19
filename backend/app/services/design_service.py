@@ -18,6 +18,7 @@ from app.models.schemas import (
     PlanPatch,
     PlanResponse,
     ReviseResponse,
+    RevisionIntent,
     SemanticBuildPlan,
     ValidationReport,
 )
@@ -128,22 +129,21 @@ class DesignService:
         if record is None:
             return None
         intent, patch = self.revision_engine.interpret(instruction, record.plan)
-        warnings: list[str] = []
         if intent.confidence_score < 0.6:
-            return ReviseResponse(
-                design_id=design_id,
-                revision=intent,
-                patch=patch,
-                plan=record.plan,
-                warnings=["Revision confidence below 0.60; clarification required."],
+            return self._revision_not_applied(
+                design_id,
+                record.plan,
+                intent,
+                patch,
+                "Revision confidence below 0.60; clarification required.",
             )
         if intent.confidence_score < 0.80 or patch is None or intent.operation == "topology_change":
-            return ReviseResponse(
-                design_id=design_id,
-                revision=intent,
-                patch=patch,
-                plan=record.plan,
-                warnings=["Revision requires confirmation before rebuild."],
+            return self._revision_not_applied(
+                design_id,
+                record.plan,
+                intent,
+                patch,
+                "Revision requires confirmation before rebuild.",
             )
 
         updated_plan = self.revision_engine.apply_patch(record.plan, patch)
@@ -173,7 +173,28 @@ class DesignService:
             plan=updated_plan,
             compile=compile_result,
             build=build_result,
-            warnings=warnings,
+        )
+
+    @staticmethod
+    def _revision_not_applied(
+        design_id: str,
+        plan: SemanticBuildPlan,
+        intent: RevisionIntent,
+        patch: PlanPatch | None,
+        reason: str,
+    ) -> ReviseResponse:
+        """Hand back the untouched plan with the reason it was left alone.
+
+        The web app renders `warnings` and nothing else from this response, so
+        the engine's evidence has to travel with them. Without it, "no step in
+        this plan has a width parameter" reaches the screen as a bare refusal.
+        """
+        return ReviseResponse(
+            design_id=design_id,
+            revision=intent,
+            patch=patch,
+            plan=plan,
+            warnings=[reason, *intent.confidence_evidence],
         )
 
     def artifact_path(self, design_id: str, kind: str) -> Path | None:
