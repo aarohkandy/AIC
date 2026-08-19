@@ -16,6 +16,7 @@ import type {
   DesignBrief,
   DesktopStatus,
   SemanticBuildPlan,
+  TargetDimensions,
 } from './types'
 
 // three.js, fiber and drei are most of this app's JavaScript, and the viewer panel shows
@@ -53,6 +54,18 @@ function parseList(value: string) {
     .filter(Boolean)
 }
 
+// A dimension the planner cannot use is not rejected, it is replaced: the brief keeps
+// going with the default for whichever category it recognized, and the substitution is
+// buried in plan.assumptions. Taking the number and ignoring it is the part worth
+// fixing here, so name it before anything is sent.
+function firstBadDimension(dims: TargetDimensions): string | null {
+  const entries = Object.entries(dims) as [keyof TargetDimensions, number | null | undefined][]
+  const bad = entries.find(([, value]) => value != null && !(value > 0))
+  return bad
+    ? `${bad[0]} has to be greater than 0. Clear the field and the planner picks a default for the shape it recognizes.`
+    : null
+}
+
 function App() {
   const [brief, setBrief] = useState<DesignBrief>(initialBrief)
   const [designId, setDesignId] = useState<string | null>(null)
@@ -81,7 +94,9 @@ function App() {
       ? `${artifactUrl(designId, 'glb')}?build=${buildSerial}`
       : null
   const workspaceReady = desktopStatus?.bootstrapState === 'Ready'
+  const dimensionProblem = firstBadDimension(brief.target_dims)
   const actionDisabled = status !== 'idle' || !workspaceReady
+  const briefDisabled = actionDisabled || dimensionProblem !== null
 
   // A per-build URL means a per-build cache entry, and that cache has no size
   // limit. Once the new preview is on screen the previous one is nobody's, so
@@ -198,6 +213,10 @@ function App() {
   }
 
   async function handlePlan() {
+    if (dimensionProblem) {
+      setError(dimensionProblem)
+      return
+    }
     const signal = beginRequest()
     setStatus('planning')
     try {
@@ -224,6 +243,10 @@ function App() {
   }
 
   async function handleBuild() {
+    if (dimensionProblem) {
+      setError(dimensionProblem)
+      return
+    }
     const signal = beginRequest()
     setStatus('building')
     try {
@@ -385,6 +408,8 @@ function App() {
                 <span>{key}</span>
                 <input
                   type="number"
+                  min={0.1}
+                  step={0.1}
                   value={brief.target_dims[key] ?? ''}
                   onChange={(event) =>
                     setBrief({
@@ -399,6 +424,7 @@ function App() {
               </label>
             ))}
           </div>
+          {dimensionProblem ? <div className="banner info-banner">{dimensionProblem}</div> : null}
           <label className="field">
             <span>Required features</span>
             <input
@@ -414,10 +440,10 @@ function App() {
             />
           </label>
           <div className="action-row">
-            <button className="secondary" onClick={handlePlan} disabled={actionDisabled}>
+            <button className="secondary" onClick={handlePlan} disabled={briefDisabled}>
               Plan
             </button>
-            <button className="primary" onClick={handleBuild} disabled={actionDisabled}>
+            <button className="primary" onClick={handleBuild} disabled={briefDisabled}>
               Build
             </button>
             {status === 'idle' ? null : (
