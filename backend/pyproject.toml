@@ -1,5 +1,6 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+# 77 is where setuptools learned to read `license` as an SPDX expression.
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,6 +8,9 @@ name = "ai-cad-backend"
 version = "0.1.0"
 description = "Planner-first AI CAD backend"
 readme = "README.md"
+# The text lives in LICENSE at the repo root. license-files cannot point above
+# the project directory, so the wheel carries the expression and not the file.
+license = "MIT"
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.115.0",

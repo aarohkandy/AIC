@@ -124,3 +124,7 @@ npm run tauri:dev
 ```
 
 Packaged Windows notes live in [docs/windows-desktop.md](docs/windows-desktop.md).
+
+## License
+
+MIT. See [LICENSE](LICENSE).
