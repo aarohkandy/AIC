@@ -57,5 +57,9 @@ jobs:
         run: npm ci
       - name: Lint
         run: npm run lint
+      # api.ts and previewCache.ts, in jsdom. Nothing renders a component here:
+      # that needs React Three Fiber, a WebGL context and a backend answering.
+      - name: Test
+        run: npm test
       - name: Build
         run: npm run build
