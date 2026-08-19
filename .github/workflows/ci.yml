@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# The Tauri shell in frontend/src-tauri gets no job here. It has never been built
+# on Linux, and building it needs webkit2gtk system packages this repo has not
+# been tested against, so the job would go red for reasons that are not the
+# code's fault. Geometry is not covered either: CadQuery is conda-only, and the
+# suite is written to run without it.
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      # ruff and black come from the dev extra, pinned there so a new release of
+      # either does not turn this red on a day nobody touched the repo.
+      - name: Install the backend and its dev tools
+        run: pip install -e ".[dev]"
+      - name: Lint
+        run: python -m ruff check app tests
+      - name: Check formatting
+        run: python -m black --check app tests
+      # scripts/aic_tui.py is what ./aic runs, so it is checked too. It needs
+      # --config because both tools pick their settings from the directory the
+      # paths live under, and a bare `../scripts` argument makes them find the
+      # repo root instead of backend/pyproject.toml and lint at 88 columns.
+      - name: Lint and check formatting for the CLI
+        run: |
+          python -m ruff check --config pyproject.toml ../scripts
+          python -m black --check --config pyproject.toml ../scripts
+      - name: Test
+        run: python -m pytest -q
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install from the lockfile
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Build
+        run: npm run build

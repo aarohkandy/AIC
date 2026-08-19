@@ -23,9 +23,17 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "pytest>=8.3.0",
-  "black>=24.0.0",
-  "ruff>=0.6.0",
+  # Pinned exactly: a new black or ruff release reformats or relints code nobody
+  # touched, and CI goes red on a day this repo did not change.
+  "black==26.5.1",
+  "ruff==0.16.3",
 ]
+
+# Without this, flat-layout auto-discovery walks backend/ and refuses to build the
+# moment it finds a second package-shaped directory beside app/. runtime/ is one,
+# and it appears on the first build, so a checkout stops installing once it works.
+[tool.setuptools.packages.find]
+include = ["app*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
