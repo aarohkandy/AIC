@@ -1,5 +1,13 @@
 import { lazy, startTransition, Suspense, useEffect, useRef, useState } from 'react'
-import { artifactUrl, buildDesign, compilePlan, planDesign, reviseDesign } from './api'
+import {
+  actionDeadlineSeconds,
+  artifactUrl,
+  buildDesign,
+  compilePlan,
+  planDesign,
+  RequestCancelledError,
+  reviseDesign,
+} from './api'
 import { initializeDesktop, getDesktopStatus, isDesktopShell, setApiBaseUrl } from './desktop'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import type {
@@ -22,6 +30,12 @@ const ModelViewer = lazy(async () => ({
 // waiting for the shell to come up.
 const BOOTSTRAP_POLL_MS = 1500
 const READY_POLL_MS = 10000
+
+const CANCEL_LABEL = {
+  planning: 'Cancel plan',
+  building: 'Cancel build',
+  revising: 'Cancel revision',
+}
 
 const initialBrief: DesignBrief = {
   prompt: 'Design a mug with an 86 mm diameter, 96 mm height, 4 mm walls, and a sturdy handle.',
@@ -52,8 +66,10 @@ function App() {
   const [sourceCopied, setSourceCopied] = useState(false)
   const [buildSerial, setBuildSerial] = useState(0)
   const [status, setStatus] = useState<'idle' | 'planning' | 'building' | 'revising'>('idle')
+  const [elapsedSeconds, setElapsedSeconds] = useState(0)
   const [desktopStatus, setDesktopShellStatus] = useState<DesktopStatus | null>(null)
   const [desktopBusy, setDesktopBusy] = useState(false)
+  const [notice, setNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   // Every build of a design overwrites the same GLB path, but useLoader caches on the URL
@@ -88,6 +104,38 @@ function App() {
         })
     }
   }, [previewUrl])
+
+  // A build can legitimately run for minutes, so the pill on its own says nothing about
+  // whether it is progressing or wedged.
+  useEffect(() => {
+    if (status === 'idle') {
+      setElapsedSeconds(0)
+      return
+    }
+    const startedAt = Date.now()
+    const ticker = window.setInterval(() => {
+      setElapsedSeconds(Math.round((Date.now() - startedAt) / 1000))
+    }, 1000)
+    return () => window.clearInterval(ticker)
+  }, [status])
+
+  // Whatever is in flight belongs to the view that started it. Cancelling only lets go
+  // of the response; the backend keeps working, which the copy below says out loud.
+  const inFlight = useRef<AbortController | null>(null)
+  useEffect(() => () => inFlight.current?.abort(new RequestCancelledError()), [])
+
+  function beginRequest() {
+    inFlight.current?.abort(new RequestCancelledError())
+    const controller = new AbortController()
+    inFlight.current = controller
+    setNotice(null)
+    setError(null)
+    return controller.signal
+  }
+
+  function handleCancel() {
+    inFlight.current?.abort(new RequestCancelledError())
+  }
 
   useEffect(() => {
     let active = true
@@ -139,12 +187,22 @@ function App() {
     }
   }
 
+  // Aborting drops the response, not the work: whatever the backend already started
+  // runs to completion on its own.
+  function reportFailure(caught: unknown, action: string) {
+    if (caught instanceof RequestCancelledError) {
+      setNotice(`${action} cancelled. The backend finishes the request it already has.`)
+      return
+    }
+    setError(caught instanceof Error ? caught.message : `${action} failed.`)
+  }
+
   async function handlePlan() {
+    const signal = beginRequest()
     setStatus('planning')
-    setError(null)
     try {
-      const planned = await planDesign(brief)
-      const compiled = await compilePlan(planned.plan)
+      const planned = await planDesign(brief, signal)
+      const compiled = await compilePlan(planned.plan, signal)
       startTransition(() => {
         setDesignId(planned.design_id)
         setPlan(planned.plan)
@@ -159,17 +217,17 @@ function App() {
         setCompiledSource(compiled.source)
       })
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Planning failed.')
+      reportFailure(caught, 'Plan')
     } finally {
       setStatus('idle')
     }
   }
 
   async function handleBuild() {
+    const signal = beginRequest()
     setStatus('building')
-    setError(null)
     try {
-      const built = await buildDesign(brief)
+      const built = await buildDesign(brief, signal)
       startTransition(() => {
         setDesignId(built.design_id)
         setPlan(built.plan)
@@ -185,7 +243,7 @@ function App() {
         setCompiledSource(built.compile.source)
       })
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Build failed.')
+      reportFailure(caught, 'Build')
     } finally {
       setStatus('idle')
     }
@@ -196,10 +254,10 @@ function App() {
       setError('Build or plan a design before revising it.')
       return
     }
+    const signal = beginRequest()
     setStatus('revising')
-    setError(null)
     try {
-      const revised = await reviseDesign(designId, revisionText)
+      const revised = await reviseDesign(designId, revisionText, signal)
       startTransition(() => {
         setPlan(revised.plan)
         setWarnings(revised.warnings)
@@ -213,7 +271,7 @@ function App() {
         }
       })
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Revision failed.')
+      reportFailure(caught, 'Revision')
     } finally {
       setStatus('idle')
     }
@@ -244,7 +302,13 @@ function App() {
         <div className="status-card">
           <span className={`status-pill status-${status}`}>{status}</span>
           <p>{plannerMeta ? `${plannerMeta.model} via ${plannerMeta.path} path` : 'Planner not invoked yet'}</p>
-          <p>{plannerMeta ? `Planning risk ${plannerMeta.risk.toFixed(2)}` : 'Waiting for the first design run.'}</p>
+          <p>
+            {status === 'idle'
+              ? plannerMeta
+                ? `Planning risk ${plannerMeta.risk.toFixed(2)}`
+                : 'Waiting for the first design run.'
+              : `${elapsedSeconds}s elapsed, giving up by ${actionDeadlineSeconds[status]}s.`}
+          </p>
         </div>
       </header>
 
@@ -356,6 +420,11 @@ function App() {
             <button className="primary" onClick={handleBuild} disabled={actionDisabled}>
               Build
             </button>
+            {status === 'idle' ? null : (
+              <button className="ghost" onClick={handleCancel}>
+                {CANCEL_LABEL[status]}
+              </button>
+            )}
           </div>
           <label className="field">
             <span>Revision instruction</span>
@@ -385,6 +454,7 @@ function App() {
               {desktopStatus?.lastError ? <> Last error: {desktopStatus.lastError}</> : null}
             </div>
           ) : null}
+          {notice ? <div className="banner info-banner">{notice}</div> : null}
           {error ? <div className="banner error-banner">{error}</div> : null}
           {warnings.length > 0 ? (
             <div className="notes">
