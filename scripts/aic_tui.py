@@ -162,7 +162,12 @@ def interactive_loop(as_json: bool) -> int:
             return 0
         if not prompt:
             return 0
-        render_plan(prompt, as_json=as_json)
+        try:
+            render_plan(prompt, as_json=as_json)
+        except SystemExit as exc:
+            # A rejected prompt should end `aic "<prompt>"`, but not the REPL.
+            # The banner above promises an empty line is how you leave.
+            print(exc)
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
@@ -175,7 +180,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = parse_args(argv or sys.argv[1:])
+    args = parse_args(sys.argv[1:] if argv is None else argv)
     if args.prompt:
         return render_plan(" ".join(args.prompt), as_json=args.json)
     return interactive_loop(as_json=args.json)
