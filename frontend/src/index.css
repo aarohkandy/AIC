@@ -237,9 +237,12 @@ h3 {
   resize: vertical;
 }
 
+/* Field labels are uppercase and letter-spaced, so DIAMETER needs about 80px before it
+   starts printing over the label next to it. Five fixed columns inside the brief panel
+   give each one roughly 50px; let the row wrap instead. */
 .inline-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
   gap: 10px;
 }
 
@@ -455,7 +458,6 @@ code {
     grid-row: auto;
   }
 
-  .inline-grid,
   .code-metadata,
   .telemetry-grid {
     grid-template-columns: 1fr 1fr;
@@ -463,7 +465,6 @@ code {
 }
 
 @media (max-width: 720px) {
-  .inline-grid,
   .code-metadata,
   .telemetry-grid {
     grid-template-columns: 1fr;
