@@ -11,6 +11,7 @@ __pycache__/
 .venv-test/
 .env
 .env.*
+!.env.example
 backend/runtime/
 backend/.coverage
 frontend/node_modules/
