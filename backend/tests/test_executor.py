@@ -93,10 +93,17 @@ def test_executor_timeout_is_a_build_failure_not_a_500(tmp_path, monkeypatch):
 
 
 def test_missing_result_payload_reports_the_subprocess_exit_code(tmp_path, monkeypatch):
-    elsewhere = tmp_path / "elsewhere"
-    elsewhere.mkdir()
-    monkeypatch.setattr(cadquery_executor, "BACKEND_ROOT", elsewhere)
-    monkeypatch.delenv("PYTHONPATH", raising=False)
+    # Stand-in interpreter that dies before writing a result. The obvious way to
+    # provoke this, hiding `app` from the subprocess, stops working the moment
+    # the backend is pip-installed, which is what CI does, so the interpreter
+    # itself is the thing to break.
+    fake_python = tmp_path / "fake-python"
+    fake_python.write_text(
+        "#!/bin/sh\necho 'ModuleNotFoundError: No module named cadquery' >&2\nexit 3\n",
+        encoding="utf-8",
+    )
+    fake_python.chmod(0o755)
+    monkeypatch.setattr(cadquery_executor.sys, "executable", str(fake_python))
     artifacts_dir = tmp_path / "artifacts"
     artifacts_dir.mkdir()
     executor = CadQueryExecutor(Settings(runtime_root=tmp_path / "runtime"))
@@ -112,10 +119,10 @@ def test_missing_result_payload_reports_the_subprocess_exit_code(tmp_path, monke
     assert result.status == "failed"
     assert result.failure is not None
     assert result.failure.failure_type == "executor_no_result"
-    assert "exited with code 1" in result.failure.message
-    assert "No module named 'app'" in result.failure.message
+    assert "exited with code 3" in result.failure.message
+    assert "No module named cadquery" in result.failure.message
     log = artifacts_dir / "executor-stderr.log"
-    assert log.exists() and "No module named 'app'" in log.read_text(encoding="utf-8")
+    assert log.exists() and "No module named cadquery" in log.read_text(encoding="utf-8")
 
 
 def test_unstartable_interpreter_is_reported_not_raised(tmp_path, monkeypatch):
