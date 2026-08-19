@@ -1,9 +1,7 @@
-import { startTransition, useEffect, useRef, useState } from 'react'
+import { lazy, startTransition, Suspense, useEffect, useRef, useState } from 'react'
 import { artifactUrl, buildDesign, compilePlan, planDesign, reviseDesign } from './api'
 import { initializeDesktop, getDesktopStatus, isDesktopShell, setApiBaseUrl } from './desktop'
 import { ErrorBoundary } from './components/ErrorBoundary'
-import { ModelViewer } from './components/ModelViewer'
-import { releasePreview } from './previewCache'
 import type {
   BuildResult,
   CompileResult,
@@ -11,6 +9,13 @@ import type {
   DesktopStatus,
   SemanticBuildPlan,
 } from './types'
+
+// three.js, fiber and drei are most of this app's JavaScript, and the viewer panel shows
+// nothing until a build has produced a GLB. Loading it on demand keeps the first paint
+// off the whole stack; the ErrorBoundary around it also covers a failed chunk fetch.
+const ModelViewer = lazy(async () => ({
+  default: (await import('./components/ModelViewer')).ModelViewer,
+}))
 
 // Health polling is cheap but not free: in browser mode every tick is a /health request
 // and the backend probes Ollama over HTTP to answer it. Poll fast only while we are
@@ -64,13 +69,23 @@ function App() {
 
   // A per-build URL means a per-build cache entry, and that cache has no size
   // limit. Once the new preview is on screen the previous one is nobody's, so
-  // hand it back rather than keep every model of the session in memory.
+  // hand it back rather than keep every model of the session in memory. The
+  // import is dynamic for the same reason ModelViewer is lazy: previewCache
+  // reaches into three.js, and by the time a preview needs releasing the chunk
+  // that holds it has already been fetched.
   const shownPreviewUrl = useRef<string | null>(null)
   useEffect(() => {
     const previous = shownPreviewUrl.current
     shownPreviewUrl.current = previewUrl
     if (previous && previous !== previewUrl) {
-      releasePreview(previous)
+      // A stale index.html against a redeployed dist makes this chunk 404. There
+      // is nothing to recover - the scene stays on the GPU either way - but an
+      // unhandled rejection would be the only sign, and the console is not it.
+      void import('./previewCache')
+        .then(({ releasePreview }) => releasePreview(previous))
+        .catch((error: unknown) => {
+          console.warn('Could not release the previous preview:', error)
+        })
     }
   }, [previewUrl])
 
@@ -522,7 +537,9 @@ function App() {
                 fallback={<div className="empty-state">Preview failed to load.</div>}
                 resetKey={previewUrl}
               >
-                <ModelViewer url={previewUrl} />
+                <Suspense fallback={<div className="empty-state">Loading the 3D viewer...</div>}>
+                  <ModelViewer url={previewUrl} />
+                </Suspense>
               </ErrorBoundary>
             ) : (
               <div className="empty-state">
