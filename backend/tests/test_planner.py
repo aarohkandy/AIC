@@ -218,6 +218,22 @@ def test_a_dimension_that_cannot_be_built_falls_back_to_the_default() -> None:
     assert any("cannot be built" in note for note in plan.assumptions), plan.assumptions
 
 
+@pytest.mark.parametrize("value", [float("nan"), float("inf")])
+def test_a_dimension_that_is_not_a_finite_number_falls_back_too(value: float) -> None:
+    # JSON carries bare NaN and Infinity literals and pydantic accepts them, so
+    # both reach the planner. NaN is the dangerous one: it compares False
+    # against everything, so it used to pass the positivity check and then blow
+    # up in the clamp's log10.
+    planner = RuleBasedPlanner()
+    brief = DesignBrief(prompt="a mug", target_dims=TargetDimensions(diameter=value, height=96))
+
+    plan = planner.plan(brief)
+
+    assert plan.parameters["outer_diameter"] == 86
+    assert plan.parameters["height"] == 96
+    assert any("cannot be built" in note for note in plan.assumptions), plan.assumptions
+
+
 def test_a_trailing_thick_still_belongs_to_the_wall_it_follows() -> None:
     planner = RuleBasedPlanner()
 

@@ -173,10 +173,14 @@ class _PromptDimensions:
                 self._defaulted.append(name)
             return float(default)
         number = _float(value, default)
-        if number <= 0:
-            # Reachable both ways: the form's number inputs have no minimum, and
-            # "0 mm across" parses. Neither extrudes to a solid, and the clamps
-            # below only ever cap a value, so this is where it has to be caught.
+        if not math.isfinite(number) or number <= 0:
+            # Reachable three ways: the form's number inputs have no minimum,
+            # "0 mm across" parses, and JSON carries the bare NaN and Infinity
+            # literals that pydantic accepts by default. None of them extrudes
+            # to a solid, and the clamps below only ever cap a value, so this is
+            # where it has to be caught. NaN in particular has to die here:
+            # every comparison against it is False, so it slips through `clamp`
+            # untouched and takes math.floor(math.log10(...)) down with it.
             self._notes.append(
                 f"A {name.replace('_', ' ')} of {number:g} mm cannot be built, so the "
                 f"{float(default):g} mm default was used instead."
