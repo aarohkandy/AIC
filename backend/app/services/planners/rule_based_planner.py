@@ -34,19 +34,45 @@ _DIMENSION_NOUNS = "|".join(_DIMENSION_NOUN_WORDS)
 
 # "3.5 in tall" is inches, "86 in diameter" is the preposition. The give-away is
 # what follows: the noun forms come after the preposition, never after a unit.
-_UNITS = rf"inches|inch|mm|cm|in(?!\s+(?:{_DIMENSION_NOUNS}))"
+# Both spellings of the written-out units are here because both get typed. The
+# bare "in" stays last of all, or it claims the first two letters of "inches".
+_UNITS = (
+    r"millimet(?:er|re)s?|centimet(?:er|re)s?|inches|inch|mm|cm|"
+    rf"in(?!\s+(?:{_DIMENSION_NOUNS}))"
+)
 _UNIT = rf"(?:\s*({_UNITS}))?"
 _ANY_UNIT = rf"(?:\s*(?:{_UNITS}))?"
 _CONNECTOR = r"(?:(?:in|of|thick)\s+)?"
 
-_MM_PER_UNIT = {"mm": 1.0, "cm": 10.0, "in": 25.4, "inch": 25.4, "inches": 25.4}
-_UNIT_NAMES = {
-    "mm": "millimetres",
-    "cm": "centimetres",
-    "in": "inches",
-    "inch": "inches",
-    "inches": "inches",
-}
+_MM_PER_UNIT = {"mm": 1.0, "cm": 10.0, "in": 25.4}
+_UNIT_NAMES = {"mm": "millimetres", "cm": "centimetres", "in": "inches"}
+
+# "200x150x60 mm" is how an enclosure gets written down, and nothing in it says
+# which number is which axis, so the order below is a guess the plan owns up to.
+# The left guard is stricter than _NUMBER_START's on purpose: "m3x10" is a screw
+# and not a size. The right guard refuses a chain of four numbers outright rather
+# than reading it as its first three.
+_CHAIN_AXES = ("width", "depth", "height")
+_CHAIN_GUARDS = r"(?![\d.])(?!\s*x\s*\d)"
+_DIMENSION_CHAINS = (
+    re.compile(rf"(?<![\w.]){_NUMBER}\s*x\s*{_NUMBER}\s*x\s*{_NUMBER}{_CHAIN_GUARDS}{_UNIT}"),
+    # Two numbers around an x are as often a count as a size - "2x4 mounting
+    # holes", "a 3x3 grid of standoffs" - and reading those as millimetres
+    # planned a 2 mm bracket. Three numbers are unambiguous enough to take
+    # without a unit; two are not, so this form needs one.
+    re.compile(rf"(?<![\w.]){_NUMBER}\s*x\s*{_NUMBER}{_CHAIN_GUARDS}\s*({_UNITS})"),
+)
+
+
+def _unit_key(unit: str) -> str:
+    """Fold a unit as it was written onto the three the tables are keyed by."""
+    if unit.startswith("millimet"):
+        return "mm"
+    if unit.startswith("centimet"):
+        return "cm"
+    if unit.startswith("inch"):
+        return "in"
+    return unit
 
 
 def _dimension_patterns(*keywords: str, owns: tuple[str, ...] = ()) -> tuple[re.Pattern[str], ...]:
@@ -70,6 +96,32 @@ def _dimension_patterns(*keywords: str, owns: tuple[str, ...] = ()) -> tuple[re.
         re.compile(rf"{_NUMBER_START}{_UNIT}\s*{_CONNECTOR}\b(?:{alternation})\b"),
         re.compile(rf"\b(?:{alternation})\b(?:\s*(?:of|is|=|:))?\s*{_NUMBER}{not_another}{_UNIT}"),
     )
+
+
+def _first_match(patterns: tuple[re.Pattern[str], ...], text: str) -> re.Match[str] | None:
+    """Whichever of a dimension's word orders the text is written in."""
+    for pattern in patterns:
+        match = pattern.search(text)
+        if match:
+            return match
+    return None
+
+
+def _chain_note(chain_text: str, axes: tuple[str, ...], unread: list[tuple[str, str]]) -> str:
+    """Say which axis each number of a chain was actually read as.
+
+    A keyword elsewhere in the prompt names its own axis and so beats the
+    chain's positional guess. This sentence exists to own up to that guess, so
+    it can only list the axes the chain really filled: "a project box
+    200x150x60 mm, 80 mm tall" plans a height of 80, and the note used to claim
+    it had read the 60 as the height anyway.
+    """
+    if len(unread) == len(axes):
+        return f'Read "{chain_text}" as {" x ".join(axes)}.'
+    filled = {axis for axis, _ in unread}
+    taken = " and ".join(f"{number} as {axis}" for axis, number in unread)
+    named = " and ".join(axis for axis in axes if axis not in filled)
+    return f'Read {taken} out of "{chain_text}"; {named} came from the rest of the request.'
 
 
 def _keyword_pattern(*words: str) -> re.Pattern[str]:
@@ -111,14 +163,18 @@ class RuleBasedPlanner:
         "width": _dimension_patterns("width", "wide", owns=("width", "wide")),
         "depth": _dimension_patterns("depth", "deep", owns=("depth", "deep")),
         "wall_thickness": _dimension_patterns(
-            "wall thickness", "walls", "wall", owns=("thick", "thickness")
+            "wall thickness", "walls", "wall", "thickness", owns=("thick", "thickness")
         ),
     }
+
+    # No recipe takes a radius, so this one is doubled into the diameter they do
+    # take, which is a reading of the request rather than a number out of it.
+    RADIUS_PATTERNS: tuple[re.Pattern[str], ...] = _dimension_patterns("radius", owns=("radius",))
 
     def plan(self, brief: DesignBrief) -> SemanticBuildPlan:
         inferred = self.infer_kind(brief.prompt)
         kind = inferred or self.FALLBACK_KIND
-        extracted, converted_units = self._extract_parameters(brief)
+        extracted, scan_notes = self._extract_parameters(brief)
         raw_steps, dimension_notes = macro_parameters_for_prompt(kind, extracted)
         steps = [
             SemanticStep(
@@ -140,7 +196,7 @@ class RuleBasedPlanner:
             kind,
             brief,
             dimension_notes,
-            converted_units=converted_units,
+            scan_notes=scan_notes,
             recognized=inferred is not None,
         )
         summary = self._summary(kind, recognized=inferred is not None)
@@ -171,36 +227,68 @@ class RuleBasedPlanner:
         return kind
 
     def _extract_parameters(self, brief: DesignBrief) -> tuple[dict[str, Any], list[str]]:
+        """Read the dimensions the request states, and note what was assumed.
+
+        The second element is what the scan itself owes the reader: the unit it
+        converted from, and the two places it interprets rather than reads, which
+        are the axis order of a "200x150x60" and a radius standing in for the
+        diameter the recipes are written against.
+        """
         # target_dims is what the user typed into the form, so it wins outright;
         # the prompt scan only fills in the fields the form left blank. The
         # brief's unit selector is the unit of those four numbers, and the macro
         # library only ever speaks millimetres, so convert on the way in.
-        converted_units: list[str] = []
-        form_scale = _MM_PER_UNIT[brief.units]
+        notes: list[str] = []
+        converted: list[str] = []
+
+        def to_mm(value: float, unit: str) -> float:
+            scale = _MM_PER_UNIT[unit]
+            name = _UNIT_NAMES[unit]
+            if scale != 1.0 and name not in converted:
+                converted.append(name)
+                notes.append(f"Dimensions given in {name} were converted to millimetres.")
+            return round(value * scale, 4)
+
         extracted: dict[str, Any] = {}
         for field in ("height", "width", "depth", "diameter"):
             value = getattr(brief.target_dims, field)
             if value is not None:
-                extracted[field] = round(value * form_scale, 4)
-        if extracted and form_scale != 1.0:
-            converted_units.append(_UNIT_NAMES[brief.units])
+                extracted[field] = to_mm(value, brief.units)
 
         prompt = brief.prompt.lower()
         for name, patterns in self.DIMENSION_PATTERNS.items():
             if name in extracted:
                 continue
-            for pattern in patterns:
-                match = pattern.search(prompt)
-                if match:
-                    # A number the prompt leaves unqualified takes the brief's
-                    # unit system; an explicit "cm" or "in" overrides it.
-                    unit = match.group(2) or brief.units
-                    scale = _MM_PER_UNIT[unit]
-                    if scale != 1.0 and _UNIT_NAMES[unit] not in converted_units:
-                        converted_units.append(_UNIT_NAMES[unit])
-                    extracted[name] = round(float(match.group(1)) * scale, 4)
-                    break
-        return extracted, converted_units
+            match = _first_match(patterns, prompt)
+            if match:
+                # A number the prompt leaves unqualified takes the brief's unit
+                # system; an explicit "cm" or "inches" overrides it.
+                unit = _unit_key(match.group(2) or brief.units)
+                extracted[name] = to_mm(float(match.group(1)), unit)
+
+        # A keyword names the axis it belongs to, so it wins over the chain's
+        # positional guess, and the chain only fills what is still missing.
+        chain = _first_match(_DIMENSION_CHAINS, prompt)
+        if chain:
+            *numbers, chain_unit = chain.groups()
+            axes = _CHAIN_AXES[: len(numbers)]
+            unit = _unit_key(chain_unit or brief.units)
+            unread = [
+                (axis, number) for axis, number in zip(axes, numbers) if axis not in extracted
+            ]
+            if unread:
+                for axis, number in unread:
+                    extracted[axis] = to_mm(float(number), unit)
+                notes.append(_chain_note("x".join(numbers), axes, unread))
+
+        radius = None if "diameter" in extracted else _first_match(self.RADIUS_PATTERNS, prompt)
+        if radius:
+            unit = _unit_key(radius.group(2) or brief.units)
+            measured = to_mm(float(radius.group(1)), unit)
+            extracted["diameter"] = round(measured * 2, 4)
+            notes.append(f"Read a radius of {measured:g} mm as a diameter of {measured * 2:g} mm.")
+
+        return extracted, notes
 
     def _summary(self, kind: str, *, recognized: bool) -> str:
         recipe = {
@@ -222,7 +310,7 @@ class RuleBasedPlanner:
         brief: DesignBrief,
         dimension_notes: list[str],
         *,
-        converted_units: list[str],
+        scan_notes: list[str],
         recognized: bool,
     ) -> list[str]:
         # The macros emit millimetres whatever the brief's unit selector said, so
@@ -236,8 +324,7 @@ class RuleBasedPlanner:
                 f"below build a {self._family_label(kind)} instead of the object described."
             )
             assumptions.append(f"The macro library covers {families} and {last}.")
-        for unit in converted_units:
-            assumptions.append(f"Dimensions given in {unit} were converted to millimetres.")
+        assumptions.extend(scan_notes)
         assumptions.extend(dimension_notes)
         if kind == "project_box":
             assumptions.append(
