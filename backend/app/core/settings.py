@@ -16,7 +16,6 @@ class Settings(BaseSettings):
     executor_mode: Literal["local", "containerized"] = "local"
     allow_hosted_models: bool = False
     prefer_local_model_planner: bool = True
-    force_local_model_planner: bool = True
     gemini_api_key: str | None = None
     gemini_flash_model: str = "gemini-2.5-flash"
     gemini_pro_model: str = "gemini-2.5-pro"
