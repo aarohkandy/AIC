@@ -8,9 +8,10 @@ from app.models.schemas import DesignBrief, SemanticBuildPlan
 class DesignValidator:
     """Heuristics for planning risk and plan quality.
 
-    Scores how risky a brief is to plan and reports warnings about a
-    produced plan (missing notes, placeholder values, or missing macro
-    parameters).
+    Scores how risky a brief is to plan, and reports warnings about the plan
+    that comes back: a step missing its workplane, notes or sketch
+    constraints, a placeholder anywhere in a step, and missing numeric
+    parameters on the three mug macros.
     """
 
     def planning_risk_score(self, brief: DesignBrief) -> float:
@@ -48,6 +49,9 @@ class DesignValidator:
             ):
                 warnings.append(f"Step {step.id} contains placeholders instead of concrete values.")
 
+            # Only the three mug macros have a required-parameter list here. A
+            # step naming any of the other nine gets the structural checks above
+            # and no parameter checking at all.
             if step.primitive_or_macro == "create_mug_body":
                 required = ("outer_diameter", "height")
                 missing = [
