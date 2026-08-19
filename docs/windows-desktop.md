@@ -1,5 +1,11 @@
 # Windows Desktop Workflow
 
+The packaged path described below is designed but unverified: there is no Rust
+toolchain in this working copy, so `frontend/src-tauri/` has not been built here,
+no installer has been produced, and the runtime archive has not been packed. Read
+this as the intended design and the steps to try first, not as a workflow that
+has been walked end to end.
+
 ## Product Shape
 
 AI CAD now has a Windows-first desktop shell built with Tauri. The packaged app
@@ -43,9 +49,15 @@ npm run tauri:build
 5. Build `v1.0.1`
 6. Install the newer build over the older one
 
-Expected result:
+That last sequence is the upgrade case the shell is written for, and it is the
+one worth exercising first. What it is meant to do, none of which has been
+observed:
 
-- app data persists
-- runtime is reused if `runtimeVersion` is unchanged
+- app data persists across the upgrade
+- the runtime is reused rather than re-unpacked when `runtimeVersion` is
+  unchanged
 - no uninstall/reinstall loop is required
+
+If any of those turns out to be false once someone builds it, the shell is
+wrong, not this list.
 
