@@ -31,6 +31,5 @@ def get_design_service() -> DesignService:
         gateway=gateway,
         compiler=compiler,
         executor=executor,
-        validator=validator,
         revision_engine=revision_engine,
     )

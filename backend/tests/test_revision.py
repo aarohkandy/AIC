@@ -79,7 +79,6 @@ def make_service(tmp_path: Path) -> DesignService:
         gateway=ModelGateway(settings, planner, validator, ollama_planner=OllamaPlanner(settings)),
         compiler=CountingCompiler(),
         executor=RecordingExecutor(),
-        validator=validator,
         revision_engine=RevisionEngine(),
     )
 

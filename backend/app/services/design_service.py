@@ -27,7 +27,6 @@ from app.services.executors.cadquery_executor import CadQueryExecutor
 from app.services.gateway.model_gateway import ModelGateway
 from app.services.revision.revision_engine import RevisionEngine
 from app.services.storage.file_store import FileStore
-from app.services.validation.design_validator import DesignValidator
 
 # Artifact kinds the API will serve. Each names an ArtifactPaths field, "<kind>_path".
 ARTIFACT_KINDS = ("glb", "stl", "step_export", "source")
@@ -54,7 +53,6 @@ class DesignService:
         gateway: ModelGateway,
         compiler: CadQueryCompiler,
         executor: CadQueryExecutor,
-        validator: DesignValidator,
         revision_engine: RevisionEngine,
     ) -> None:
         self.settings = settings
@@ -62,7 +60,6 @@ class DesignService:
         self.gateway = gateway
         self.compiler = compiler
         self.executor = executor
-        self.validator = validator
         self.revision_engine = revision_engine
 
     def plan(self, brief: DesignBrief) -> PlanResponse:
