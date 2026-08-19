@@ -151,7 +151,11 @@ def main() -> None:
                 cache_hits += 1
                 continue
 
-            step_fn = namespace[step["id"]]
+            # Python NFKC-normalizes identifiers as it parses them, so a step
+            # whose id is not already in NFKC form binds under a different name
+            # than the one the plan wrote. Same normalization as _execution_order
+            # and the compiler's binding check.
+            step_fn = namespace[unicodedata.normalize("NFKC", step["id"])]
             state = step_fn(state)
             if state is None:
                 # A manual_feature step compiles to a pass-through, so a plan that

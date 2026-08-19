@@ -452,6 +452,41 @@ def test_runtime_blames_the_step_that_raised(tmp_path, monkeypatch):
     assert "radius too large" in result["failure"]["message"]
 
 
+LIGATURE_SOURCE = """
+def export_artifacts(result, step_path, stl_path, glb_path):
+    for path in (step_path, stl_path, glb_path):
+        with open(path, "w") as handle:
+            handle.write("artifact")
+
+
+def ﬁx_body(state):
+    return cq.State()
+"""
+
+
+def ligature_plan() -> SemanticBuildPlan:
+    plan = simple_plan()
+    plan.steps[0].id = "ﬁx_body"
+    return plan
+
+
+def test_a_step_id_python_renames_is_still_found_in_the_namespace(tmp_path, monkeypatch):
+    # "ﬁx_body" is the fi ligature. Python folds it to "fix_body" while
+    # parsing the compiled module, so looking the function up under the id the
+    # plan wrote used to raise KeyError and report the id as the whole message.
+    result = run_runtime(
+        tmp_path,
+        monkeypatch,
+        LIGATURE_SOURCE,
+        stub=StubCadQuery(),
+        plan=ligature_plan(),
+    )
+
+    assert result["status"] == "succeeded"
+    assert result.get("failure") is None
+    assert Path(result["artifacts"]["glb_path"]).exists()
+
+
 TWO_STEP_SOURCE = STUB_SOURCE + """
 
 def rim(state):
