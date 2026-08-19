@@ -10,6 +10,11 @@ from app.services.cadquery_macros import (
 )
 
 _NUMBER = r"(\d+(?:\.\d+)?)"
+# The number-first pattern searches the whole prompt, so without a left guard
+# `\d+` restarts inside every run of digits and the scan goes quadratic in the
+# length of that run. A prompt is allowed 2000 characters and the API will take
+# 2000 digits, which cost 2.3s in the planner before this guard and 2ms after.
+_NUMBER_START = rf"(?<![\d.]){_NUMBER}"
 
 # Words that start a dimension of their own. A number followed by one of them
 # belongs to that clause, not to a keyword sitting further back in the sentence.
@@ -62,7 +67,7 @@ def _dimension_patterns(*keywords: str, owns: tuple[str, ...] = ()) -> tuple[re.
     others = "|".join(word for word in _DIMENSION_WORDS if word not in owns)
     not_another = rf"(?![\d.])(?!{_ANY_UNIT}\s*(?:{others})\b)"
     return (
-        re.compile(rf"{_NUMBER}{_UNIT}\s*{_CONNECTOR}\b(?:{alternation})\b"),
+        re.compile(rf"{_NUMBER_START}{_UNIT}\s*{_CONNECTOR}\b(?:{alternation})\b"),
         re.compile(rf"\b(?:{alternation})\b(?:\s*(?:of|is|=|:))?\s*{_NUMBER}{not_another}{_UNIT}"),
     )
 
