@@ -95,7 +95,10 @@ def _check_call(name: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> Non
 
 
 class _Solid:
-    """What ``.val()`` returns: the two measurements runtime.py takes, and no more."""
+    """What ``.val()`` returns: the three things runtime.py asks a solid, and no more."""
+
+    def isValid(self) -> bool:
+        return True
 
     def Volume(self) -> float:
         return STUB_VOLUME

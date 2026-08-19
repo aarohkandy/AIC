@@ -352,8 +352,11 @@ def body(state):
 
 
 class StubState:
+    valid = True
+
     def val(self) -> SimpleNamespace:
         return SimpleNamespace(
+            isValid=lambda: type(self).valid,
             Volume=lambda: 42.0,
             BoundingBox=lambda: SimpleNamespace(xlen=86.0, ylen=86.0, zlen=96.0),
         )
@@ -450,6 +453,16 @@ def test_runtime_blames_the_step_that_raised(tmp_path, monkeypatch):
     assert result["failure"]["failure_type"] == "cadquery_execution_failed"
     assert result["failure"]["failed_step_id"] == "body"
     assert "radius too large" in result["failure"]["message"]
+
+
+def test_a_solid_occ_calls_invalid_fails_the_build(tmp_path, monkeypatch):
+    monkeypatch.setattr(StubState, "valid", False)
+
+    result = run_runtime(tmp_path, monkeypatch, STUB_SOURCE, stub=StubCadQuery())
+
+    assert result["status"] == "failed"
+    assert result["validation"]["checks"]["valid_solid"] is False
+    assert result["failure"]["failure_type"] == "geometry_validation_failed"
 
 
 LIGATURE_SOURCE = """

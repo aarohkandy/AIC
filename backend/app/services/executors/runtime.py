@@ -219,7 +219,11 @@ def main() -> None:
         final_solid = state.val()
         final_box = final_solid.BoundingBox()
         validation_checks = {
-            "closed_solid": True,
+            # isValid runs OCC's BRepCheck_Analyzer over the shape, which is the
+            # nearest thing to "this is a solid you could send to a printer".
+            # This used to be the literal True, so the UI listed a passing check
+            # nobody had performed.
+            "valid_solid": bool(final_solid.isValid()),
             "non_zero_volume": float(final_solid.Volume()) > 0,
             "glb_exists": glb_path.exists(),
             "step_exists": step_export_path.exists(),
