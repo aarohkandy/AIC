@@ -497,7 +497,10 @@ function App() {
                 <h3>Compiler checks</h3>
                 <ul>
                   {compileResult.diagnostics.map((diagnostic, index) => (
-                    <li key={`${diagnostic.code}-${index}`}>{diagnostic.level}: {diagnostic.message}</li>
+                    <li key={`${diagnostic.code}-${index}`}>
+                      {diagnostic.level}: {diagnostic.message}
+                      {diagnostic.step_id ? <> (step <code>{diagnostic.step_id}</code>)</> : null}
+                    </li>
                   ))}
                   {compileResult.whitelist_findings.map((finding, index) => (
                     <li key={`${finding.message}-${index}`}>{finding.severity}: {finding.message}</li>

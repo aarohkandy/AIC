@@ -274,8 +274,9 @@ class CadQueryCompiler:
         dependency order emits the source it always did.
 
         A cycle is an error: there is no order, so the caller refuses the plan
-        by name rather than picking one and hoping. A dependency naming a step
-        this plan does not build is only a warning, and the edge is dropped. The
+        by name rather than picking one and hoping. A dependency naming
+        something this plan did not compile is only a warning, and the edge is
+        dropped: the step may be missing, or it may be one that failed. The
         local planner's prompt asks for step ids there but nothing enforces it,
         and a model that writes a human label ("create outer body") for a plan
         that is already in the right order would otherwise have its whole build
@@ -299,9 +300,10 @@ class CadQueryCompiler:
                             code="unknown_dependency",
                             step_id=step_id,
                             message=(
-                                f"Step {step_id} depends on {dependency!r}, which this plan does "
-                                "not build, so that ordering was ignored and the step stayed "
-                                "where the plan listed it. Name a step id the plan compiles."
+                                f"Step {step_id} depends on {dependency!r}, which is not a step "
+                                "this plan compiled, so that ordering was ignored and the step "
+                                "stayed where the plan listed it. Name the id of a step that "
+                                "compiles."
                             ),
                         )
                     )
