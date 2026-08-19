@@ -41,7 +41,7 @@ async function browserStatus(): Promise<DesktopStatus> {
         healthy: true,
         detail: 'Backend reachable through browser dev workflow.',
       },
-      statusMessage: 'Browser mode is active. Start the FastAPI backend manually for local web testing.',
+      statusMessage: 'Browser mode is active and the backend answered its health check.',
       devMode: true,
       lastError: null,
     }
@@ -56,7 +56,8 @@ async function browserStatus(): Promise<DesktopStatus> {
         healthy: false,
         detail: 'Backend health check failed.',
       },
-      statusMessage: 'Desktop shell is not active and the local backend is not reachable.',
+      statusMessage:
+        'Desktop shell is not active and the local backend is not reachable. Start uvicorn in backend/ and the next poll picks it up.',
       devMode: true,
       lastError: error instanceof Error ? error.message : 'Unknown browser health check failure.',
     }

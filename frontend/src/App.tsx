@@ -66,6 +66,27 @@ function firstBadDimension(dims: TargetDimensions): string | null {
     : null
 }
 
+// One status shape covers two runtimes, and an empty field means different things in each.
+// In the Tauri shell an empty backendUrl means bootstrap has not handed one over yet; in a
+// browser it means nothing set VITE_API_BASE_URL, so requests go to this origin and the dev
+// server proxies them. Reporting both as "not assigned" reads as a fault when only one is.
+function backendLabel(status: DesktopStatus | null) {
+  if (!status) {
+    return 'checking'
+  }
+  if (status.backendUrl) {
+    return status.backendUrl
+  }
+  return status.isDesktopShell ? 'not assigned yet' : 'same origin, proxied by the dev server'
+}
+
+function shellLabel(status: DesktopStatus) {
+  if (!status.isDesktopShell) {
+    return 'browser session'
+  }
+  return status.devMode ? 'developer shell' : 'packaged shell'
+}
+
 function App() {
   const [brief, setBrief] = useState<DesignBrief>(initialBrief)
   const [designId, setDesignId] = useState<string | null>(null)
@@ -339,14 +360,14 @@ function App() {
         <div className="desktop-banner-copy">
           <p className="eyebrow">Desktop Runtime</p>
           <h2>
-            {desktopStatus?.bootstrapState ?? 'Installing'}
-            {' '}
-            {desktopStatus?.devMode ? 'developer shell' : 'packaged shell'}
+            {desktopStatus
+              ? `${desktopStatus.bootstrapState} ${shellLabel(desktopStatus)}`
+              : 'Checking the runtime'}
           </h2>
-          <p>{desktopStatus?.statusMessage ?? 'Checking desktop shell status...'}</p>
+          <p>{desktopStatus?.statusMessage ?? 'Waiting for the first status poll.'}</p>
           <div className="desktop-meta">
             <span className="chip">Runtime {desktopStatus?.runtimeVersion ?? 'unknown'}</span>
-            <span className="chip">Backend {desktopStatus?.backendUrl || 'not assigned'}</span>
+            <span className="chip">Backend {backendLabel(desktopStatus)}</span>
             <span className={`chip ${desktopStatus?.backendHealth.healthy ? 'chip-success' : 'chip-warning'}`}>
               {desktopStatus?.backendHealth.detail ?? 'Waiting for backend health...'}
             </span>
@@ -356,7 +377,13 @@ function App() {
           <div className="notes compact-note">
             <h3>Shell signals</h3>
             <ul>
-              <li>Logs: {desktopStatus?.logsPath || 'not available yet'}</li>
+              <li>
+                Logs:
+                {' '}
+                {desktopStatus?.isDesktopShell
+                  ? desktopStatus.logsPath || 'not available yet'
+                  : 'wherever you started uvicorn'}
+              </li>
               <li>
                 Mode:
                 {' '}
