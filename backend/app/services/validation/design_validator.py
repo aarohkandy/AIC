@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.models.schemas import DesignBrief, SemanticBuildPlan, ValidationReport
+from app.models.schemas import DesignBrief, SemanticBuildPlan
 
 
 class DesignValidator:
@@ -27,28 +27,6 @@ class DesignValidator:
         ):
             risk += 0.1
         return round(min(risk, 1.0), 2)
-
-    def validate_plan(self, brief: DesignBrief, plan: SemanticBuildPlan) -> ValidationReport:
-        checks: dict[str, bool | float | str] = {
-            "has_steps": bool(plan.steps),
-            "has_summary": bool(plan.summary),
-            "step_count": len(plan.steps),
-        }
-        status = "passed" if checks["has_steps"] and checks["has_summary"] else "failed"
-        if not brief.required_features:
-            checks["required_features_status"] = "not_requested"
-        else:
-            missing = [
-                feature
-                for feature in brief.required_features
-                if feature.lower() not in plan.summary.lower()
-            ]
-            checks["required_features_status"] = (
-                "passed" if not missing else f"missing:{','.join(missing)}"
-            )
-            if missing:
-                status = "failed"
-        return ValidationReport(status=status, checks=checks)
 
     def plan_quality_warnings(self, plan: SemanticBuildPlan) -> list[str]:
         warnings: list[str] = []
