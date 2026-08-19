@@ -6,6 +6,7 @@ from math import isfinite
 from typing import Any
 
 import httpx
+from pydantic import ValidationError
 
 from app.core.settings import Settings
 from app.models.schemas import (
@@ -17,6 +18,10 @@ from app.models.schemas import (
 from app.services.planners.ollama_planner import OllamaPlanner, OllamaPlannerError
 from app.services.planners.rule_based_planner import RuleBasedPlanner
 from app.services.validation.design_validator import DesignValidator
+
+
+class HostedPlannerError(RuntimeError):
+    """Raised when the hosted Gemini planner is unavailable or returns unusable output."""
 
 
 class ModelGateway:
@@ -66,17 +71,22 @@ class ModelGateway:
             except OllamaPlannerError as exc:
                 warnings.append(f"Local Ollama planner unavailable, falling back: {exc}")
         if self._can_use_hosted(risk, design_pro_call_count, prior_flash_failure):
-            hosted_plan, record = self._plan_with_gemini(brief, risk)
-            return hosted_plan, risk, record, warnings
+            try:
+                tier = self._hosted_tier(risk, prior_flash_failure)
+                hosted_plan, record = self._plan_with_gemini(brief, tier)
+                return hosted_plan, risk, record, warnings
+            except HostedPlannerError as exc:
+                warnings.append(f"Hosted Gemini planner failed, falling back: {exc}")
         local_plan = self.planner.plan(brief)
+        # Whichever planner failed has already said so above, and this line used
+        # to blame the local one whether or not it had been asked: with
+        # prefer_local_model_planner off, nothing was tried before this point.
         if supported_shape:
-            warnings.append(
-                "Using the deterministic rule-based planner because the local AI planner failed."
-            )
+            warnings.append("Using the deterministic rule-based planner.")
         else:
             warnings.append(
-                "Using the deterministic rule-based planner because the local AI planner failed, "
-                "and no macro family matches this shape, so the plan below is a stand-in."
+                "Using the deterministic rule-based planner, but no macro family matches "
+                "this shape, so the plan below is a stand-in."
             )
         return (
             local_plan,
@@ -141,6 +151,17 @@ class ModelGateway:
             details={"reason": reason},
         )
 
+    @staticmethod
+    def _hosted_tier(risk: float, prior_flash_failure: bool) -> str:
+        """Which model tier a brief goes to.
+
+        The quota gate and the call itself both need this answer, and each used
+        to work it out for itself. They disagreed on one case: a low-risk brief
+        promoted by a prior flash failure was charged to the pro budget and then
+        sent to the flash model.
+        """
+        return "pro" if risk >= 0.35 or prior_flash_failure else "flash"
+
     def _can_use_hosted(
         self,
         risk: float,
@@ -153,8 +174,7 @@ class ModelGateway:
         if not health.healthy:
             return False
         today_counts = self._today_counts(self._load_ledger())
-        use_pro = risk >= 0.35 or prior_flash_failure
-        if use_pro:
+        if self._hosted_tier(risk, prior_flash_failure) == "pro":
             if design_pro_call_count >= self.settings.max_pro_calls_per_design:
                 return False
             if today_counts["pro"] >= self.settings.default_pro_calls_per_day:
@@ -167,10 +187,11 @@ class ModelGateway:
     def _plan_with_gemini(
         self,
         brief: DesignBrief,
-        risk: float,
+        tier: str,
     ) -> tuple[SemanticBuildPlan, ModelCallRecord]:
-        use_pro = risk >= 0.35
-        model = self.settings.gemini_pro_model if use_pro else self.settings.gemini_flash_model
+        model = (
+            self.settings.gemini_pro_model if tier == "pro" else self.settings.gemini_flash_model
+        )
         payload = {
             "generationConfig": {"responseMimeType": "application/json"},
             "contents": [
@@ -188,18 +209,45 @@ class ModelGateway:
                 }
             ],
         }
-        response = httpx.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
-            params={"key": self.settings.gemini_api_key},
-            json=payload,
-            timeout=30,
-        )
-        response.raise_for_status()
-        body = response.json()
-        text = body["candidates"][0]["content"]["parts"][0]["text"]
-        plan = SemanticBuildPlan.model_validate_json(text)
-        usage = body.get("usageMetadata", {})
-        self._record_call("pro" if use_pro else "flash")
+        try:
+            response = httpx.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+                params={"key": self.settings.gemini_api_key},
+                json=payload,
+                timeout=30,
+            )
+            response.raise_for_status()
+            body = response.json()
+        except httpx.HTTPStatusError as exc:
+            # The API key rides in the query string, and str() on a status error
+            # quotes the whole request URL. plan() puts this text into the
+            # response warnings and the web app renders every one of them, so a
+            # 400 "API key not valid" would have printed the key onto the page.
+            # Only the status code goes out; the exception itself is chained for
+            # the log.
+            raise HostedPlannerError(f"Gemini answered HTTP {exc.response.status_code}") from exc
+        except httpx.HTTPError as exc:
+            # Same rule for the transport errors, which is why this is a class
+            # name and not a message: nothing that has seen the URL is quoted.
+            raise HostedPlannerError(f"Gemini could not be reached: {type(exc).__name__}") from exc
+        except ValueError as exc:
+            raise HostedPlannerError(f"Gemini returned a non-JSON response: {exc}") from exc
+
+        try:
+            text = body["candidates"][0]["content"]["parts"][0]["text"]
+        except (IndexError, KeyError, TypeError) as exc:
+            # A safety block answers 200 with a candidate that carries a
+            # finishReason and no content, and a blocked prompt answers with no
+            # candidates at all. Indexing straight through the four levels made
+            # both of those a 500 instead of the fall-through to the
+            # deterministic planner the README promises.
+            raise HostedPlannerError(f"Gemini reply carried no plan text: {exc!r}") from exc
+        try:
+            plan = SemanticBuildPlan.model_validate_json(text)
+        except ValidationError as exc:
+            raise HostedPlannerError(f"Gemini returned invalid plan JSON: {exc}") from exc
+        usage = body.get("usageMetadata") or {}
+        self._record_call(tier)
         return (
             plan,
             ModelCallRecord(
