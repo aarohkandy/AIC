@@ -2,15 +2,146 @@
 
 AI CAD is a planner-first local prototype for single-part parametric modeling.
 It turns a design brief into a visible semantic build plan, compiles that plan
-into deterministic CadQuery source, and renders an interactive browser preview.
+into deterministic CadQuery source, and runs that source to export STEP, STL
+and a GLB for the browser preview.
 
-## Project Layout
+```mermaid
+flowchart LR
+  brief["a sentence"] -->|ModelGateway| plan["semantic build plan"]
+  plan -->|CadQueryCompiler| src["CadQuery source"]
+  src -->|CadQueryExecutor| out["model.step, model.stl, preview.glb"]
+```
 
-- `backend/`: FastAPI API, planner/compiler/executor pipeline, runtime storage
-- `frontend/`: React + Vite app with prompt, plan, code, and 3D preview panes
-- `frontend/src-tauri/`: Windows-first desktop shell and backend bootstrap manager
-- `docs/`: setup and architecture notes
-- `packaging/`: runtime manifest and Windows packaging scripts
+## What a Run Looks Like
+
+One command from the repo root, with the environment from
+[Quick Start](#quick-start) in place. This is the real output, trimmed only
+where it says `...`:
+
+```
+$ ./aic "a mug 86 mm across and 96 mm tall"
+AI CAD
+================================================================================
+a mug 86 mm across and 96 mm tall
+
+Planner: rule-based-local-fallback (local, local)
+Planning risk: 0.25
+
+Warnings
+--------------------------------------------------------------------------------
+- Supported geometry runtime is Python 3.11 via Miniforge/conda + mamba. Local
+  builds may fail outside that environment.
+- Local Ollama planner unavailable, falling back: Ollama planner request failed:
+  Client error '404 Not Found' for url 'http://127.0.0.1:11434/api/chat' For
+  more information check:
+  https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404
+- Using the deterministic rule-based planner.
+
+Summary
+--------------------------------------------------------------------------------
+Create the outer body, hollow it, and attach a handle so the mug emerges in
+stages.
+
+Assumptions
+--------------------------------------------------------------------------------
+- Every dimension in this plan is in millimetres.
+- Request did not state wall thickness, so category defaults were applied.
+- Handle is blocky and revision-friendly rather than ergonomic in v1.
+
+Steps
+--------------------------------------------------------------------------------
+1. Create the outer mug body as a cylinder.
+   id: create_outer_body
+   macro: create_mug_body
+   workplane: XY
+   location:
+   - Start a sketch on the Top or XY plane.
+   - Place the outer circle center at the global origin.
+   sizes:
+   - Outer diameter = 86 mm.
+   - Extrude height = 96 mm.
+   sketch_constraints:
+   - Constrain the circle center coincident with the origin.
+   - Apply one diameter dimension of 86 mm so the sketch is fully defined.
+   manual_recipe:
+   - Sketch one centered circle for the mug exterior.
+   - Extrude the profile upward by 96 mm as a new solid.
+   parameters:
+   - outer_diameter: 86.0
+   - height: 96.0
+   postcondition: Outer cylinder exists with target height and outer diameter.
+
+...
+```
+
+Two more steps follow: the shell, and the handle sketched on the YZ plane.
+
+The Ollama warning in the middle is the deterministic fallback announcing
+itself. Ollama was running on the machine that produced this, but `llama3.1:8b`
+was never pulled, so the planner call 404s and the rule-based planner writes the
+plan instead. That is the default path until you pull a model, and every line
+above is the fallback's own work.
+
+Ask for something the macro library has no recipe for and it says so rather
+than pretending:
+
+```
+$ ./aic "a teapot which can hold 1 gallon"
+...
+- Using the deterministic rule-based planner, but no macro family matches this
+  shape, so the plan below is a stand-in.
+
+Summary
+--------------------------------------------------------------------------------
+No macro family matches this request. As a stand-in, create the cap body first,
+then add perimeter grip cutouts as the finishing step.
+
+Assumptions
+--------------------------------------------------------------------------------
+- Every dimension in this plan is in millimetres.
+- No macro family matches "a teapot which can hold 1 gallon", so the steps below
+  build a bottle cap instead of the object described.
+- The macro library covers mug, L bracket, project box, phone stand and bottle
+  cap.
+- Request did not state diameter, height and wall thickness, so category
+  defaults were applied.
+...
+```
+
+The steps it hands back are still a real bottle cap, workplanes and sketch
+constraints and all, so the plan remains usable as a manual CAD recipe. It just
+will not call one a teapot.
+
+## Status
+
+This is a prototype. The front of the pipeline is covered by tests; the far end
+has never met a real CadQuery.
+
+Planning, compilation and revision are the tested part. In `backend/`,
+`python -m pytest -q` runs 319 tests and they pass. The frontend has 14 vitest
+tests across `src/api.test.ts` and `src/previewCache.test.ts`, and both
+`npm run lint` and `npm run build` are clean. Nothing in the frontend suite
+renders a component: that needs React Three Fiber, a WebGL context and a
+backend answering.
+
+Geometry is the gap. CadQuery is conda-only and is not installed on the machine
+this was developed on, so every test that reaches the executor runs against
+[backend/tests/stub_cadquery.py](backend/tests/stub_cadquery.py), a stand-in
+that records the calls the compiled source makes and rejects any length that is
+not finite and positive. That is enough to show the compiler emits source that
+runs, in the right order, with sane numbers. It is not evidence that a real
+CadQuery build succeeds, and nobody has run one, so the STEP/STL/GLB export and
+the browser preview are unverified rather than working or broken.
+
+`frontend/src-tauri/` is 661 lines of Rust for the desktop shell and has not
+been built or verified in this working copy, because there is no Rust toolchain
+here. `npm run tauri:dev` and the packaging flow in
+[docs/windows-desktop.md](docs/windows-desktop.md) are written, not tested.
+
+[.github/workflows/ci.yml](.github/workflows/ci.yml) lints, format-checks and
+tests both halves. Every lint, format, test and build step in it has been run by
+hand locally and passes. It has never run on GitHub, which is why there is no
+badge at the top of this file.
 
 ## Supported Runtime
 
@@ -31,12 +162,13 @@ Fastest terminal test, once the environment from
 [environment.yml](environment.yml) is created and activated:
 
 ```bash
-./aic "a teapot which can hold 1 gallon"
+./aic "a mug 86 mm across and 96 mm tall"
 ```
 
 That runs the planner directly in the terminal with no web app startup. Run
 outside that environment it prints the bootstrap commands and exits 1 rather
-than a traceback.
+than a traceback. With no prompt at all, `./aic` opens an interactive loop and
+plans one prompt per line until you press Enter on an empty one.
 
 If a `.venv-test/` directory exists at the repo root, `./aic` uses its
 interpreter instead of the `python3` on PATH, and the Tauri dev shell picks it
@@ -83,87 +215,30 @@ ollama list
 ollama serve
 ```
 
-## What the Macro Library Covers
+## What the Planner Covers
 
-Geometry comes from a fixed macro library, so the compiler can only *build* the
-shapes it has recipes for. Five families are modelled end to end:
+Geometry comes from a fixed macro library with five families modelled end to
+end: mug, L bracket, project box, phone stand and bottle cap. Whatever the
+prompt leaves out, the plan states: which dimension it guessed at, which one it
+clamped to keep the solid buildable, which fell back to a category default, and
+whether the shape you asked for is in the library at all.
 
-- mug (`mug`, `cup`): outer body, shell, blocky handle
-- L bracket (`bracket`): L profile plus two mounting holes
-- project box (`box`, `enclosure`): shelled enclosure plus four standoffs
-- phone stand (`stand`): base slab, tilted backrest, front lip
-- bottle cap (`bottle`, `cap`): hollow cap body plus perimeter grip cutouts
+- [docs/planner-coverage.md](docs/planner-coverage.md) has the five families in
+  full and exactly how a prompt is read for dimensions and units.
+- [docs/revisions.md](docs/revisions.md) has what the revision box will change
+  on an existing plan and what it refuses to guess at.
 
-Prompts are scanned for diameter, height, width, depth and wall thickness, in
-either word order: `86 mm diameter` and `diameter 86 mm` both read, as do
-`86 mm across`, `walls 3 mm thick` and `2.5 mm thickness`. A radius is doubled
-into a diameter, since that is what the recipes are written against, and the
-assumptions say it was doubled.
+## Project Layout
 
-`200x150x60 mm` is read as three dimensions at once, spaced or not. Nothing in
-that form says which number is which axis, so the scan guesses width, depth,
-height in that order and the plan states the guess:
-`Read "200x150x60" as width x depth x height.` An axis named anywhere else in
-the prompt wins over the guess, and then the note lists only the axes the chain
-was actually read for. Two numbers are read as width by depth, but only with a
-unit on them, because `2x4 mounting holes` is a count and not a size. Four
-numbers are not read at all, since at that point the scan does not know what it
-is looking at. Length is deliberately not read either: no recipe has a length
-parameter, and which axis it means changes from family to family.
+- `backend/`: FastAPI API, planner/compiler/executor pipeline, runtime storage
+- `frontend/`: React + Vite app with prompt, plan, code, and 3D preview panes
+- `frontend/src-tauri/`: Windows-first desktop shell and backend bootstrap manager
+- `scripts/`: `aic_tui.py`, the terminal front end `./aic` runs
+- `docs/`: setup, architecture, and the planner reference
+- `packaging/`: runtime manifest and Windows packaging scripts
 
-A recipe uses the dimensions it has parameters for, and the plan's assumptions
-say what became of the rest: which dimensions this recipe has no parameter for,
-which ones fell back to a category default, and any value that had to be
-clamped to keep the solid buildable. Ask for a 20 mm box with 15 mm walls and
-you get 8 mm walls and a line saying so, because 15 mm walls cut a negative
-cavity.
-
-Every plan is in millimetres. A prompt or form figure given in cm or inches is
-converted on the way in and the assumptions name the original unit. Units are
-read spelled out as well as abbreviated, so `3.4 in tall` and `86 millimetres`
-both land. A bare `in` sitting directly in front of a dimension word is the
-preposition rather than the unit, which is what makes `86 in diameter` read as
-86 mm; write `3.4 inches in diameter` when the unit is what you mean. A zero or
-negative dimension cannot be extruded, so it falls back to the category default
-and the plan says which one it used.
-
-Anything outside those five families is not recognized. The plan summary and
-the assumptions both say so, and the planner still hands back the closest
-recipe as a stand-in, so the workplanes, locations, sizes and sketch
-constraints remain a usable manual CAD recipe. It will not quietly call a
-bottle cap a teapot.
-
-When the local AI planner writes a step no macro fits, it marks it
-`manual_feature`. Those compile to a pass-through so the rest of the plan still
-builds, and the compile diagnostics name the step and point at its manual
-instructions.
-
-## Revising a Plan
-
-Once a design has been planned, the revision box takes one instruction and
-either changes the number it names or says why it did not. Nothing in between:
-a revision that goes through is recompiled and rebuilt from the earliest step
-it touched, so the plan on screen and the record on disk always agree.
-
-What it can change is a parameter some step in the plan carries.
-`change the wall thickness from 3 mm to 5 mm` sets 5, not the 3 the sentence
-starts with, and the response says which of the two numbers it read.
-
-What it declines, and says so instead of half-applying:
-
-- topology. `add a lid` is not a number in a step, and no patch can express it.
-- a number it had to guess at. Two numbers with nothing tying them together
-  (`make the wall thickness 5 mm and the height 120 mm`), a stated change with
-  a second request bolted on, or an amount rather than a destination
-  (`increase the height by 5 mm`) all stop short of a rebuild and ask for
-  confirmation.
-- a parameter this plan does not have. A mug has no width, so
-  `make the width 120 mm` comes back as a clarification request with the plan
-  untouched, rather than writing a key nothing reads.
-
-Every decline carries the engine's own reasoning in the response warnings,
-which is what the web app renders, so the answer on screen says which number
-was read and which was not.
+The pipeline itself is walked module by module in
+[docs/architecture.md](docs/architecture.md).
 
 ## Desktop App Base
 
