@@ -21,8 +21,8 @@ def _floor_to(value: float, places: int) -> float:
     """Largest number with `places` decimals that is not greater than `value`.
 
     `math.floor(value * 100) / 100` is the obvious spelling and it is wrong:
-    17.2 * 100 is 1719.9999999999998 in binary floating point, so it answers
-    17.19. Rounding to nearest and stepping back only when that overshoots
+    4.35 * 100 is 434.99999999999994 in binary floating point, so it answers
+    4.34. Rounding to nearest and stepping back only when that overshoots
     leaves the exact cases exact.
     """
     rounded = round(value, places)
@@ -197,7 +197,7 @@ class _PromptDimensions:
         """
         if value <= ceiling:
             return value
-        # Round down, never to nearest. 0.045 to nearest comes back as 0.05,
+        # Round down, never to nearest. 0.046 to nearest comes back as 0.05,
         # which is over the ceiling this call exists to enforce; the previous
         # version floored at 0.1 mm and overshot outright, so a 0.1 mm
         # enclosure kept its 0.1 mm walls and cut a negative cavity out of
