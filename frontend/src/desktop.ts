@@ -15,10 +15,18 @@ export function setApiBaseUrl(nextBaseUrl: string) {
   apiBaseUrl = nextBaseUrl.replace(/\/$/, '')
 }
 
+// /health does no work, so anything slower than this is a backend that accepted
+// the connection and then went quiet. The poll in App only schedules its next
+// tick once this settles, so without a deadline that one socket stops the loop
+// for good: no banner, no state change, buttons frozen where they were.
+const HEALTH_TIMEOUT_MS = 5_000
+
 async function browserStatus(): Promise<DesktopStatus> {
   const base = getApiBaseUrl()
   try {
-    const response = await fetch(`${base}/health`)
+    const response = await fetch(`${base}/health`, {
+      signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS),
+    })
     if (!response.ok) {
       throw new Error(`Backend health returned ${response.status}`)
     }
