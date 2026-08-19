@@ -336,6 +336,29 @@ def test_repair_is_recorded_so_a_resized_part_is_visible(tmp_path, monkeypatch):
     assert "wall_thickness 4 to 3.6" in note
 
 
+def test_the_last_attempt_does_not_record_a_repair_it_never_ran(tmp_path, monkeypatch):
+    make_client(tmp_path, monkeypatch)
+    service = get_design_service()
+    plan = repairable_plan()
+    executor = ScriptedExecutor([execution_failure("geometry did not build")] * 3)
+    service.executor = executor
+
+    result = service._attempt_build(
+        design_id="d1",
+        brief=DesignBrief(prompt="anything"),
+        plan=plan,
+        compile_result=service.compiler.compile(plan),
+        artifacts_dir=tmp_path,
+    )
+
+    assert result.status == "failed"
+    assert result.attempts_used == 3
+    executed = [plan.steps[0].parameters["radius"] for plan in executor.plans]
+    assert executed == [8.0, 7.2, 6.48]
+    note = result.validation.checks["auto_repairs"]
+    assert "radius 6.48" not in note
+
+
 # The runtime's step loop, cache, and export are the half of the pipeline that
 # CadQuery normally owns. A stub standing in for `cq` exercises all of it here.
 

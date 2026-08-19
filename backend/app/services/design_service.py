@@ -43,6 +43,9 @@ class DesignService:
     attempts), revision, and persistence for a single parametric part.
     """
 
+    # One executor run, plus two chances to shrink and retry.
+    MAX_BUILD_ATTEMPTS = 3
+
     # Fallback for when a failure message names no parameter we can act on.
     REPAIRABLE_PARAMETER_TOKENS = ("thickness", "radius", "depth", "width", "offset")
 
@@ -225,7 +228,7 @@ class DesignService:
         total_cache_hits = 0
         repairs: list[str] = []
         last_result: BuildResult | None = None
-        for attempt in range(1, 4):
+        for attempt in range(1, self.MAX_BUILD_ATTEMPTS + 1):
             last_result = self.executor.execute(
                 design_id=design_id,
                 brief=brief,
@@ -243,6 +246,10 @@ class DesignService:
                 not last_result.failure
                 or last_result.failure.attribution_basis == "setup_unavailable"
             ):
+                break
+            if attempt == self.MAX_BUILD_ATTEMPTS:
+                # No attempt left to run a repair on. Computing one here would put
+                # a resize into _note_repairs that the artifacts never received.
                 break
             patch = self._repair_patch(current_plan, last_result.failure)
             if patch is None:
@@ -276,8 +283,8 @@ class DesignService:
         }
         # Shrink what the failure actually named, since CadQuery and OCC usually
         # echo the offending dimension. When the message names nothing there is
-        # no better target than every repairable length in the step, and three
-        # rounds of that leave the part 27% small, so _note_repairs writes the
+        # no better target than every repairable length in the step, and two
+        # rounds of that leave the part 19% small, so _note_repairs writes the
         # change into the build result instead of letting it pass unmentioned.
         message = failure.message.lower()
         implicated = {key: value for key, value in numeric.items() if key.lower() in message}
