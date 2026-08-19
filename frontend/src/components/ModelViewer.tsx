@@ -3,10 +3,15 @@ import { Canvas, useLoader, useThree } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
 import { Box3, Vector3 } from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { trackPreviewScene } from '../previewCache'
 
 function FitCamera({ url }: { url: string }) {
   const gltf = useLoader(GLTFLoader, url)
   const { camera } = useThree()
+
+  useEffect(() => {
+    trackPreviewScene(url, gltf.scene)
+  }, [url, gltf.scene])
 
   useEffect(() => {
     const bounds = new Box3().setFromObject(gltf.scene)
